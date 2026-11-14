@@ -5,7 +5,7 @@ import { test } from "node:test"
 import { mcpChecks } from "../../src/agents/agent.ts"
 import { claudeCode, parseClaudeMcp } from "../../src/agents/claude-code.ts"
 import { codex, parseCodexMcp } from "../../src/agents/codex.ts"
-import { openCode, parseOpenCodeMcp } from "../../src/agents/opencode.ts"
+import { openCode, openCodeModel, parseOpenCodeMcp } from "../../src/agents/opencode.ts"
 import { tempHome } from "../helpers.ts"
 
 /** Puts a fake agent CLI first on PATH: it records its argv, cwd and stdin, and prints `output`. */
@@ -101,8 +101,11 @@ test("OpenCode runs with --auto and the model's variant as effort; the reply is 
     fake.restore()
   }
   assert.ok(fake.argv().includes("--standalone"), "a private OpenCode, so the run is in its own folder")
-  assert.match(openCode.modelError("claude-opus-5-5")!, /provider\/model/u)
-  assert.equal(openCode.modelError("anthropic/claude-opus-5-5"), null)
+  assert.equal(openCodeModel("claude-opus-5-5"), "anthropic/claude-opus-5-5", "the Model list's names work for OpenCode too")
+  assert.equal(openCodeModel("gpt-6.1-sol"), "openai/gpt-6.1-sol")
+  assert.equal(openCodeModel("xai/grok-5"), "xai/grok-5")
+  assert.match(openCode.modelError("grok-5")!, /provider\/model/u)
+  assert.equal(openCode.modelError("claude-opus-5-5"), null)
 })
 
 test("each agent's MCP list is read, and a missing or signed-out server is an error with its fix", () => {

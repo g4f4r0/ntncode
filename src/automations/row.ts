@@ -12,7 +12,7 @@ export const AUTOMATION_PROPERTIES = {
   Project: "relation",
   Status: "status",
   Agent: "select",
-  Model: "rich_text",
+  Model: "select",
   Effort: "select",
   Start: "date",
   "Time zone": "select",
@@ -282,7 +282,7 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
   const agentName = read.select("Agent")
   const agent = AgentName.safeParse(agentName)
   if (!agent.success) read.fail("Agent", agentName ? `unknown agent ${agentName}` : "is required: Claude Code, Codex or OpenCode")
-  const model = read.text("Model") || null
+  const model = read.select("Model")
   const effortName = read.select("Effort")
   const effort = effortName === null ? null : Effort.safeParse(effortName.toLowerCase())
   if (effort && !effort.success) read.fail("Effort", `unknown option ${effortName}`)

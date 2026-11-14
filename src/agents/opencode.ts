@@ -38,6 +38,17 @@ const OpenCodeEvent = z.looseObject({
   error: z.unknown().optional(),
 })
 
+/**
+ * OpenCode names a model provider/model. The Model property holds one list of names for every agent, so the provider
+ * is added for the families whose provider is clear: claude-* is Anthropic's, gpt-* is OpenAI's. Null when unclear.
+ */
+export function openCodeModel(model: string): string | null {
+  if (/^[\w.-]+\/[\w.:-]+$/u.test(model)) return model
+  if (/^claude-[\w.-]+$/u.test(model)) return `anthropic/${model}`
+  if (/^gpt-[\w.-]+$/u.test(model)) return `openai/${model}`
+  return null
+}
+
 const binary = (paths: Paths) => findBinary("opencode", [path.join(paths.home, ".opencode/bin"), path.join(paths.home, ".local/bin")])
 
 /** OpenCode's plugins that Notion Code replaces, still in its config. */
@@ -64,7 +75,7 @@ function enabledOpenCodeAutomations(paths: Paths): string[] | null {
 export const openCode: Agent = {
   name: "OpenCode",
   binary,
-  modelError: (model) => (model && !/^[\w.-]+\/[\w.:-]+$/u.test(model) ? "an OpenCode model is provider/model, such as anthropic/claude-opus-5-5" : null),
+  modelError: (model) => (model && !openCodeModel(model) ? "OpenCode needs provider/model, such as anthropic/claude-opus-5-5, for a model that isn't claude-* or gpt-*" : null),
 
   async run(paths, input) {
     const bin = binary(paths)
@@ -77,7 +88,8 @@ export const openCode: Agent = {
     }
     const args = ["run", "--standalone", "--format", "json", "--auto", "--title", input.title]
     // OpenCode sets effort as the model's variant, so it needs a model.
-    if (input.model) args.push("-m", input.effort ? `${input.model}#${input.effort}` : input.model)
+    const model = input.model ? openCodeModel(input.model) : null
+    if (model) args.push("-m", input.effort ? `${model}#${input.effort}` : model)
     const result = await runCommand(bin, args, { cwd: input.directory, input: input.prompt, env: input.env, onStart: input.onStart })
     let session: string | null = null
     const texts = new Map<string, string[]>()

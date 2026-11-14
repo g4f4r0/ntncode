@@ -52,7 +52,7 @@ export function automationPage(input: RowInput = {}): NotionPage {
       Project: { type: "relation", relation: input.project === null ? [] : [{ id: input.project ?? PROJECT }], has_more: false },
       Status: { type: "status", status: input.status === null ? null : { name: input.status ?? "Enabled" } },
       Agent: select(input.agent === undefined ? "Claude Code" : input.agent),
-      Model: { type: "rich_text", rich_text: input.model ? [{ plain_text: input.model }] : [] },
+      Model: select(input.model),
       Effort: select(input.effort === undefined ? "High" : input.effort),
       Start: date(input.start === undefined ? "2026-11-15T08:00:00.000+01:00" : input.start),
       "Time zone": select(input.zone === undefined ? "Europe/Madrid" : input.zone),
