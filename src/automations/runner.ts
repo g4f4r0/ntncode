@@ -85,18 +85,57 @@ export function duration(ms: number): string {
   return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`
 }
 
+/** A model ID as the Notion option names it: claude-opus-5-5 is Opus 5.5, gpt-6.1-sol is GPT-6.1 Sol. */
+export function modelLabel(id: string): string {
+  const claude = id.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)$/u)
+  if (claude) return `${claude[1]![0]!.toUpperCase()}${claude[1]!.slice(1)} ${claude[2]}.${claude[3]}`
+  const gpt = id.match(/^gpt-([\d.]+)((?:-[a-z]+)*)$/u)
+  if (gpt) return `GPT-${gpt[1]}${gpt[2]!.split("-").filter(Boolean).map((word) => ` ${word[0]!.toUpperCase()}${word.slice(1)}`).join("")}`
+  return id
+}
+
+/** A table cell: no pipes or line breaks to break the row. */
+const cell = (text: string) => text.replace(/\|/gu, "\\|").replace(/\s*\n\s*/gu, " ")
+
+/** The agent's reply under `## Result`: its own headings move down a level, so the page keeps one structure. */
+const nest = (reply: string) => reply.replace(/^(#{1,5}) /gmu, "#$1 ")
+
+export interface ReportInput {
+  agent: AgentName
+  model: string | null
+  effort: string | null
+  resume: string | null
+  trigger: "Scheduled" | "Manual"
+  at: string
+  startedAt: string
+  finishedAt: string
+  ok: boolean
+  reply: string
+  error: string | null
+}
+
 /**
- * The run's page body: one line on what ran and for how long, one to open its session, then the agent's final reply.
- * The Title and Date already hold when it was scheduled, started and finished.
+ * Every run's page body, the same two sections whatever happened: `## Details`, a table with the same rows every
+ * time, and `## Result`, the agent's final reply or, when the run failed, the error. The Title and Date already hold
+ * when it was scheduled and ran.
  */
-export function renderReport(input: { agent: AgentName; model: string | null; effort: string | null; session: string | null; resume: string | null; trigger: string; at: string; startedAt: string; finishedAt: string; ok: boolean; reply: string; error: string | null }): string {
-  const ran = [input.agent, input.model ? `\`${input.model}\`` : null, input.effort ? `${input.effort} effort` : null, duration(Date.parse(input.finishedAt) - Date.parse(input.startedAt))]
-  const late = input.trigger === "Scheduled" ? Date.parse(input.startedAt) - Date.parse(input.at) : 0
-  const head = [ran.filter(Boolean).join(" · ")]
-  if (late > 120_000) head.push(`Started ${duration(late)} after its scheduled time.`)
-  if (input.resume) head.push(`Resume: \`${input.resume}\``)
-  const body = input.ok ? input.reply.trim() || "The agent finished without a final reply." : `**Failed:** ${input.error ?? "unknown error"}${input.reply.trim() ? `\n\n${input.reply.trim()}` : ""}`
-  return `${head.join("\n\n")}\n\n---\n\n${cut(body, REPORT_CHARS)}\n`
+export function renderReport(input: ReportInput): string {
+  const late = Date.parse(input.startedAt) - Date.parse(input.at)
+  const started = input.trigger === "Manual" ? "By hand" : late > 120_000 ? `${duration(late)} after its scheduled time` : "On time"
+  const rows: [string, string][] = [
+    ["Agent", input.agent],
+    ["Model", input.model ? modelLabel(input.model) : "–"],
+    ["Effort", input.effort ? `${input.effort[0]!.toUpperCase()}${input.effort.slice(1)}` : "–"],
+    ["Duration", duration(Date.parse(input.finishedAt) - Date.parse(input.startedAt))],
+    ["Started", started],
+    ["Session", input.resume ? `\`${input.resume}\`` : "–"],
+  ]
+  const reply = input.reply.trim()
+  const result = input.ok
+    ? reply ? nest(cut(reply, REPORT_CHARS)) : "The agent finished without a final reply."
+    : `**Failed:** ${input.error ?? "unknown error"}${reply ? `\n\n${nest(cut(reply, REPORT_CHARS))}` : ""}`
+  const table = ["| Detail | Value |", "| --- | --- |", ...rows.map(([name, value]) => `| ${name} | ${cell(value)} |`)].join("\n")
+  return `## Details\n\n${table}\n\n## Result\n\n${result}\n`
 }
 
 /**
@@ -173,7 +212,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     await alert(paths, config.onFailure, { definition, run: null, error: message, session: null })
     return [{ status: "failed", path: label, detail: `${message}; not run` }]
   }
-  writeInflight(paths, { run: run.page, id: run.id, url: run.url, key, automation: definition.id, automationUrl: definition.url, title: definition.title, directory: definition.directory, startedAt, pid: process.pid, request })
+  writeInflight(paths, { run: run.page, id: run.id, url: run.url, key, automation: definition.id, automationUrl: definition.url, title: definition.title, agent: definition.agent, model: definition.model, effort: definition.effort, trigger, at: input.at, directory: definition.directory, startedAt, pid: process.pid, request })
   report({ status: "In progress", run: run.id, url: run.url })
 
   let ok = false
@@ -217,7 +256,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     status: ok ? "Completed" : "Failed",
     startedAt,
     finishedAt,
-    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, session, resume, trigger, at: input.at, startedAt, finishedAt, ok, reply, error }),
+    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, resume, trigger, at: input.at, startedAt, finishedAt, ok, reply, error }),
   }
   let recorded = "recorded in Notion"
   try {

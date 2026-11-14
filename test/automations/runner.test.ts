@@ -5,7 +5,7 @@ import { test } from "node:test"
 import type { Agent, AgentName, AgentRunInput } from "../../src/agents/index.ts"
 import { definitionsFolder, type Definition } from "../../src/automations/definitions.ts"
 import { automations } from "../../src/automations/index.ts"
-import { alert, duration, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
+import { alert, duration, modelLabel, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
 import { outboxFolder, readInflight, runKey, writeInflight } from "../../src/automations/runs.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
 import type { NotionWriter } from "../../src/shared/notion-writer.ts"
@@ -121,8 +121,7 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   assert.deepEqual([calls[0]!.directory, calls[0]!.model, calls[0]!.effort], [path.join(paths.projects, "acme"), "claude-opus-5-5", "high"])
 
   const markdown = writes.find((write) => write.kind === "markdown")!.body as string
-  assert.match(markdown, /^Claude Code · `claude-opus-5-5` · high effort · \d+ s\n\nResume: `claude --resume sess-1`\n\n---\n\n/u)
-  assert.doesNotMatch(markdown, /after its scheduled time/u, "it started on time")
+  assert.equal(markdown.replace(/\| \d+ s \|/u, "| N s |"), "## Details\n\n| Detail | Value |\n| --- | --- |\n| Agent | Claude Code |\n| Model | Opus 5.5 |\n| Effort | High |\n| Duration | N s |\n| Started | On time |\n| Session | `claude --resume sess-1` |\n\n## Result\n\nAll good: 0 issues.\n")
   assert.match(markdown, /All good: 0 issues./u)
   const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown; Date: { date: { end: string } } } }
   assert.deepEqual(update.properties.Status, { status: { name: "Completed" } })
@@ -153,7 +152,7 @@ test("a failed run is recorded Failed, and the onFailure command gets the detail
   assert.match(fs.readFileSync(out, "utf8"), /automation "Acme daily audit" \(AUT-12\) failed: Claude Code ended with error_max_turns Run RUN-5: https:\/\/app.notion.com\/p\/run5\nAUT-12 RUN-5 failed\n/u)
   const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown } }
   assert.deepEqual(update.properties.Status, { status: { name: "Failed" } })
-  assert.match(String(writes.find((write) => write.kind === "markdown")!.body), /\*\*Failed:\*\* Claude Code ended with error_max_turns/u)
+  assert.match(String(writes.find((write) => write.kind === "markdown")!.body), /\| Started \| By hand \|\n\| Session \| `claude --resume sess-1` \|\n\n## Result\n\n\*\*Failed:\*\* Claude Code ended with error_max_turns\n$/u)
   const result = JSON.parse(fs.readFileSync(resultPath(paths, "req-1"), "utf8"))
   assert.deepEqual([result.status, result.run, result.error], ["Failed", "RUN-5", "Claude Code ended with error_max_turns"])
 })
@@ -195,7 +194,7 @@ test("a manual run's title uses its start time; prompt text can't open or close 
 test("a run left in progress by a stopped scheduler is marked Failed when the scheduler starts", async () => {
   const paths = tempHome()
   const { notion, writer, writes } = runsNotion()
-  writeInflight(paths, { run: "run-page", id: "RUN-9", url: "u", key: "AUT-12@x", automation: "AUT-12", automationUrl: "a", title: "Acme", directory: "/tmp", startedAt: "2026-11-14T07:00:00.000Z", pid: 999_999_999, request: null })
+  writeInflight(paths, { run: "run-page", id: "RUN-9", url: "u", key: "AUT-12@x", automation: "AUT-12", automationUrl: "a", title: "Acme", agent: "Claude Code", model: "claude-opus-5-5", effort: "high", trigger: "Scheduled", at: "2026-11-14T07:00:00.000Z", directory: "/tmp", startedAt: "2026-11-14T07:00:00.000Z", pid: 999_999_999, request: null })
   // The module's own writer goes to the real API; give it the fake through a stubbed fetch instead.
   const original = globalThis.fetch
   const sent: { url: string; body: string }[] = []
@@ -213,6 +212,7 @@ test("a run left in progress by a stopped scheduler is marked Failed when the sc
     globalThis.fetch = original
   }
   assert.ok(sent.some((request) => request.url.endsWith("/pages/run-page") && request.body.includes('"Failed"')))
+  assert.ok(sent.some((request) => request.url.endsWith("/pages/run-page/markdown") && request.body.includes("## Details") && request.body.includes("| Model | Opus 5.5 |") && request.body.includes("## Result") && request.body.includes("scheduler stopped")), "a cut-off run gets the same page")
   assert.equal(readInflight(paths).length, 0)
   assert.equal(writes.length, 0)
   void writer
@@ -247,6 +247,9 @@ test("a broken manual request is set aside and never stops the scheduled automat
 
 test("a run's length reads naturally, and a late start says how late", () => {
   assert.deepEqual([duration(27_000), duration(240_000), duration(3_900_000)], ["27 s", "4 min", "1 h 5 min"])
-  const late = renderReport({ agent: "Codex", model: null, effort: null, session: null, resume: null, trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", startedAt: "2026-11-15T07:12:00.000Z", finishedAt: "2026-11-15T07:13:00.000Z", ok: false, reply: "", error: "boom" })
-  assert.equal(late, "Codex · 1 min\n\nStarted 12 min after its scheduled time.\n\n---\n\n**Failed:** boom\n")
+  const late = renderReport({ agent: "Codex", model: null, effort: null, resume: null, trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", startedAt: "2026-11-15T07:12:00.000Z", finishedAt: "2026-11-15T07:13:00.000Z", ok: false, reply: "", error: "boom" })
+  assert.equal(late, "## Details\n\n| Detail | Value |\n| --- | --- |\n| Agent | Codex |\n| Model | – |\n| Effort | – |\n| Duration | 1 min |\n| Started | 12 min after its scheduled time |\n| Session | – |\n\n## Result\n\n**Failed:** boom\n", "a failed run has the same two sections and the same rows")
+  assert.deepEqual(["claude-opus-5-5", "claude-fable-5-2", "gpt-6.1-sol", "gpt-6.1-terra-fast", "x/custom"].map(modelLabel), ["Opus 5.5", "Fable 5.2", "GPT-6.1 Sol", "GPT-6.1 Terra Fast", "x/custom"])
+  const nested = renderReport({ agent: "Codex", model: null, effort: null, resume: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:05.000Z", ok: true, reply: "## Summary\nOK\n### Detail\nx", error: null })
+  assert.match(nested, /## Result\n\n### Summary\nOK\n#### Detail\nx\n$/u, "the agent's headings sit under Result")
 })

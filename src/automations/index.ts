@@ -12,7 +12,7 @@ import type { Notion } from "../shared/notion.ts"
 import { createNotionWriter } from "../shared/notion-writer.ts"
 import { buildDefinition, Definition, definitionsFolder, readDefinitions, syncAutomations } from "./definitions.ts"
 import { AUTOMATION_PROPERTIES, readRow, REQUIRED_OPTIONS, RUN_PROPERTIES, wallClock } from "./row.ts"
-import { alert, resultPath, resultsFolder, RunResult, runAutomation } from "./runner.ts"
+import { alert, renderReport, resultPath, resultsFolder, RunResult, runAutomation } from "./runner.ts"
 import { clearInflight, flushOutbox, outboxFolder, readInflight, Runs } from "./runs.ts"
 
 export { RunResult, resultPath }
@@ -94,7 +94,8 @@ export const automations: Module = {
         const finishedAt = new Date().toISOString()
         const error = "Notion Code's scheduler stopped during the run (a restart or a crash), so the agent was stopped too"
         try {
-          await runs.finish(inflight.run, { status: "Failed", startedAt: inflight.startedAt, finishedAt, markdown: `**Failed:** ${error}.\n` })
+          const markdown = renderReport({ agent: inflight.agent, model: inflight.model, effort: inflight.effort, resume: null, trigger: inflight.trigger, at: inflight.at, startedAt: inflight.startedAt, finishedAt, ok: false, reply: "", error: `${error}.` })
+          await runs.finish(inflight.run, { status: "Failed", startedAt: inflight.startedAt, finishedAt, markdown })
         } catch (failure) {
           results.push({ status: "failed", path: inflight.id, detail: `couldn't mark ${inflight.id} Failed: ${(failure as Error).message}` })
           continue

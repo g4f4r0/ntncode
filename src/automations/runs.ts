@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { z } from "zod"
+import { AgentName } from "../agents/index.ts"
 import type { Paths } from "../shared/config.ts"
 import { quarantine, readValid, writeJson } from "../shared/files.ts"
 import type { Notion, NotionPage } from "../shared/notion.ts"
@@ -109,6 +110,12 @@ export const Inflight = z.strictObject({
   automation: z.string(),
   automationUrl: z.string(),
   title: z.string(),
+  /** What ran, so a run cut off by a stopped scheduler gets the same page as any other. */
+  agent: AgentName,
+  model: z.string().nullable(),
+  effort: z.string().nullable(),
+  trigger: z.enum(["Scheduled", "Manual"]),
+  at: z.string(),
   directory: z.string(),
   startedAt: z.string(),
   /** The scheduler process that started it. */
