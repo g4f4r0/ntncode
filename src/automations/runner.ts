@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { z } from "zod"
-import { AGENTS, type Agent, type AgentName, type Usage } from "../agents/index.ts"
+import { AGENTS, explainFailure, redact, type Agent, type AgentName, type Usage } from "../agents/index.ts"
 import type { Paths } from "../shared/config.ts"
 import { expandHome } from "../shared/config.ts"
 import { writeJson } from "../shared/files.ts"
@@ -116,6 +116,15 @@ export interface ReportInput {
   ok: boolean
   reply: string
   error: string | null
+  /** For a failure, the agent's raw context, already redacted. */
+  details?: string | null
+}
+
+/** A fenced code block that the text inside can't close. */
+function codeBlock(text: string): string {
+  const longest = Math.max(2, ...(text.match(/`+/gu) ?? []).map((run) => run.length))
+  const fence = "`".repeat(longest + 1)
+  return `${fence}text\n${text}\n${fence}`
 }
 
 /** 22.5k, 1.2M: a token count at a glance. */
@@ -145,9 +154,13 @@ export function renderReport(input: ReportInput): string {
     ["Folder", `\`${input.folder}\``],
   ]
   const reply = input.reply.trim()
+  // A failure says what happened and what to do in plain words, then gives the exact error and the agent's own
+  // context in a code block, then any reply the agent gave before it failed.
+  const error = input.error ?? "unknown error"
+  const raw = [redact(error), input.details ? redact(input.details) : null].filter(Boolean).join("\n\n")
   const result = input.ok
     ? reply ? nest(cut(reply, REPORT_CHARS)) : "The agent finished without a final reply."
-    : `**Failed:** ${input.error ?? "unknown error"}${reply ? `\n\n${nest(cut(reply, REPORT_CHARS))}` : ""}`
+    : [`**Failed:** ${explainFailure(error, input.agent)}`, codeBlock(raw), ...(reply ? ["The agent's last reply:", nest(cut(reply, REPORT_CHARS))] : [])].join("\n\n")
   // Notion's table markup, because a markdown table always has a header row and this one is name and value pairs.
   const table = ['<table header-row="false">', ...rows.map(([name, value]) => `<tr>\n<td>${name}</td>\n<td>${cell(value)}</td>\n</tr>`), "</table>"].join("\n")
   return `## Details\n\n${table}\n\n## Result\n\n${result}\n`
@@ -236,6 +249,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
   let session: string | null = null
   let resume: string | null = null
   let usage: Usage | null = null
+  let details: string | null = null
   try {
     if (!fs.existsSync(definition.directory)) throw new Error(`the run's folder ${definition.directory} doesn't exist`)
     const instructions = fs.existsSync(instructionsPath(paths)) ? fs.readFileSync(instructionsPath(paths), "utf8").trim() : null
@@ -263,6 +277,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
       },
     })
     ;({ ok, reply, error, session, resume, usage } = output)
+    details = output.details ?? null
   } catch (failure) {
     error = (failure as Error).message
   }
@@ -272,7 +287,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     status: ok ? "Completed" : "Failed",
     startedAt,
     finishedAt,
-    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, session, folder: show(paths, definition.directory), usage, trigger, at: input.at, startedAt, finishedAt, ok, reply, error }),
+    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, session, folder: show(paths, definition.directory), usage, trigger, at: input.at, startedAt, finishedAt, ok, reply, error, details }),
     usage,
   }
   let recorded = "recorded in Notion"

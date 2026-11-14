@@ -5,6 +5,7 @@ import { z } from "zod"
 import type { Paths } from "../shared/config.ts"
 import { runCommand } from "../shared/process.ts"
 import { findBinary, mcpChecks, oneLine, type Agent, type McpServer } from "./agent.ts"
+import { failureDetails, tail } from "./failure.ts"
 import type { Link } from "./links.ts"
 
 /**
@@ -75,7 +76,7 @@ export const claudeCode: Agent = {
     } catch {}
     if (!parsed) {
       const why = result.error ?? (oneLine(result.stderr || result.stdout) || `exit code ${result.code}`)
-      return { ok: false, reply: "", session, resume, usage: null, error: `Claude Code returned no result: ${why}` }
+      return { ok: false, reply: "", session, resume, usage: null, error: `Claude Code returned no result: ${why}`, details: failureDetails(result, { "stdout (last lines)": tail(result.stdout, 20) || null }) }
     }
     const reply = parsed.result ?? ""
     const ok = !parsed.is_error && parsed.subtype === "success" && result.code === 0
@@ -88,7 +89,9 @@ export const claudeCode: Agent = {
           costUsd: parsed.total_cost_usd ?? null,
         }
       : null
-    return { ok, reply, session: parsed.session_id, resume, usage, error: ok ? null : `Claude Code ended with ${parsed.subtype}${parsed.is_error ? " (error)" : ""}: ${oneLine(reply || result.stderr)}` }
+    const fields = parsed as Record<string, unknown>
+    const details = ok ? null : failureDetails(result, { subtype: parsed.subtype, is_error: parsed.is_error, api_error_status: fields.api_error_status, terminal_reason: fields.terminal_reason, num_turns: fields.num_turns, result: oneLine(reply, 1_000) })
+    return { ok, reply, session: parsed.session_id, resume, usage, details, error: ok ? null : `Claude Code ended with ${parsed.subtype}${parsed.is_error ? " (error)" : ""}: ${oneLine(reply || result.stderr)}` }
   },
 
   envNeeds(paths) {

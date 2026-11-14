@@ -36,6 +36,8 @@ export interface AgentRunOutput {
   error: string | null
   /** What the run used, as the agent reports it; null when it reported nothing. */
   usage: Usage | null
+  /** For a failure, the raw context: exit code, the agent's own error fields, the end of its stderr; secrets masked. */
+  details?: string | null
 }
 
 /**

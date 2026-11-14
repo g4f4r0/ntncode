@@ -5,6 +5,7 @@ import type { Paths } from "../shared/config.ts"
 import type { Check } from "../shared/module.ts"
 import { runCommand } from "../shared/process.ts"
 import { findBinary, mcpChecks, oneLine, type Agent, type McpServer } from "./agent.ts"
+import { failureDetails } from "./failure.ts"
 import type { Link } from "./links.ts"
 
 /** Codex reads ~/.agents/skills itself; its global instructions file is ~/.codex/AGENTS.md. */
@@ -73,6 +74,7 @@ export const codex: Agent = {
     let reply = ""
     let failure: string | null = null
     let usage: { input: number; cached: number; output: number; costUsd: null } | null = null
+    let failedEvent: string | null = null
     for (const line of result.stdout.split("\n")) {
       if (!line.trim()) continue
       let event: z.infer<typeof CodexEvent>
@@ -92,12 +94,16 @@ export const codex: Agent = {
         usage.cached += event.usage.cached_input_tokens ?? 0
         usage.output += event.usage.output_tokens ?? 0
       }
-      if (event.type === "turn.failed" || event.type === "error") failure = oneLine(event.message ?? JSON.stringify(event.error ?? event))
+      if (event.type === "turn.failed" || event.type === "error") {
+        failure = oneLine(event.message ?? JSON.stringify(event.error ?? event))
+        failedEvent = line
+      }
     }
     const resume = session ? `cd ${input.directory} && codex resume ${session}` : null
     const ok = result.code === 0 && !failure && !!session
     const stderr = oneLine(result.stderr.split("\n").filter((line) => !/rmcp::transport/u.test(line)).join(" "))
-    return { ok, reply, session, resume, usage, error: ok ? null : `Codex failed: ${failure ?? result.error ?? (stderr || `exit code ${result.code}`)}` }
+    const details = ok ? null : failureDetails(result, { event: failedEvent, "last reply": reply ? oneLine(reply, 1_000) : null })
+    return { ok, reply, session, resume, usage, details, error: ok ? null : `Codex failed: ${failure ?? result.error ?? (stderr || `exit code ${result.code}`)}` }
   },
 
   envNeeds(paths) {

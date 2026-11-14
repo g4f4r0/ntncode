@@ -5,6 +5,7 @@ import { test } from "node:test"
 import type { Agent, AgentName, AgentRunInput } from "../../src/agents/index.ts"
 import { definitionsFolder, type Definition } from "../../src/automations/definitions.ts"
 import { automations } from "../../src/automations/index.ts"
+import { explainFailure, redact } from "../../src/agents/index.ts"
 import { alert, count, duration, modelLabel, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
 import { outboxFolder, readInflight, runKey, writeInflight } from "../../src/automations/runs.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
@@ -156,7 +157,8 @@ test("a failed run is recorded Failed, and the onFailure command gets the detail
   assert.deepEqual(update.properties.Status, { status: { name: "Failed" } })
   const failed = update as unknown as { properties: Record<string, { number: number | null }> }
   assert.deepEqual([failed.properties.Cost!.number, failed.properties["Input tokens"]!.number], [null, null], "nothing reported, nothing recorded")
-  assert.match(String(writes.find((write) => write.kind === "markdown")!.body), /<td>Trigger<\/td>\n<td>Manual<\/td>[\s\S]*<td>Cost<\/td>\n<td>–<\/td>[\s\S]*<\/table>\n\n## Result\n\n\*\*Failed:\*\* Claude Code ended with error_max_turns\n$/u)
+  const failedPage = String(writes.find((write) => write.kind === "markdown")!.body)
+  assert.match(failedPage, /<td>Trigger<\/td>\n<td>Manual<\/td>[\s\S]*<td>Cost<\/td>\n<td>–<\/td>[\s\S]*<\/table>\n\n## Result\n\n\*\*Failed:\*\* Claude Code stopped at its turn limit before it finished\. [^\n]+\n\n```text\nClaude Code ended with error_max_turns\n```\n$/u)
   const result = JSON.parse(fs.readFileSync(resultPath(paths, "req-1"), "utf8"))
   assert.deepEqual([result.status, result.run, result.error], ["Failed", "RUN-5", "Claude Code ended with error_max_turns"])
 })
@@ -253,8 +255,20 @@ test("a run's length reads naturally, and a late start says how late", () => {
   assert.deepEqual([duration(27_000), duration(240_000), duration(3_900_000)], ["27 s", "4 min", "1 h 5 min"])
   assert.deepEqual([count(412), count(1_234), count(22_519), count(1_250_000)], ["412", "1.2k", "22.5k", "1.3M"])
   const late = renderReport({ agent: "Codex", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", startedAt: "2026-11-15T07:12:00.000Z", finishedAt: "2026-11-15T07:13:00.000Z", ok: false, reply: "", error: "boom" })
-  assert.equal(late, "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Codex</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Trigger</td>\n<td>Scheduled, started 12 min late</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>1 min</td>\n</tr>\n<tr>\n<td>Cost</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Tokens</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Folder</td>\n<td>`~/x`</td>\n</tr>\n</table>\n\n## Result\n\n**Failed:** boom\n", "a failed run has the same two sections and the same rows")
+  assert.equal(late, "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Codex</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Trigger</td>\n<td>Scheduled, started 12 min late</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>1 min</td>\n</tr>\n<tr>\n<td>Cost</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Tokens</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Folder</td>\n<td>`~/x`</td>\n</tr>\n</table>\n\n## Result\n\n**Failed:** Codex ended with an error before it finished. The details below are what it reported.\n\n```text\nboom\n```\n", "a failed run has the same two sections and the same rows")
   assert.deepEqual(["claude-opus-5-5", "claude-fable-5-2", "gpt-6.1-sol", "gpt-6.1-terra-fast", "x/custom"].map(modelLabel), ["Opus 5.5", "Fable 5.2", "GPT-6.1 Sol", "GPT-6.1 Terra Fast", "x/custom"])
   const nested = renderReport({ agent: "Codex", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:05.000Z", ok: true, reply: "## Summary\nOK\n### Detail\nx", error: null })
   assert.match(nested, /## Result\n\n### Summary\nOK\n#### Detail\nx\n$/u, "the agent's headings sit under Result")
+})
+
+test("a failure explains itself in plain words, then shows the exact error and context with secrets masked", () => {
+  const page = renderReport({ agent: "Claude Code", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:09.000Z", ok: false, reply: "I got halfway.", error: "Claude Code ended with success (error): Failed to authenticate. API Error: 401", details: "exit: 1\nstderr (last lines):\nAuthorization: Bearer sk-abcdefghijklmnop123\nntn_1234567890abcdef rejected" })
+  assert.match(page, /\*\*Failed:\*\* Claude Code couldn't sign in to its model provider, so it didn't do the work\./u)
+  assert.match(page, /```text\nClaude Code ended with success \(error\): Failed to authenticate\. API Error: 401\n\nexit: 1\nstderr \(last lines\):\nAuthorization: Bearer <redacted>\n<redacted> rejected\n```/u)
+  assert.match(page, /```\n\nThe agent's last reply:\n\nI got halfway\.\n$/u)
+  assert.doesNotMatch(page, /sk-abc|ntn_123/u, "no secret reaches Notion")
+  assert.equal(redact("key=supersecretvalue1 ok", { MY_API_KEY: "supersecretvalue1" }), "key=<redacted> ok", "a secret from the environment is masked by its value")
+  assert.equal(explainFailure("Notion Code's scheduler stopped during the run", "Codex"), "Notion Code's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual.")
+  const fenced = renderReport({ agent: "Codex", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:01.000Z", ok: false, reply: "", error: "x", details: "output with ``` inside" })
+  assert.match(fenced, /````text\nx\n\noutput with ``` inside\n````/u, "a fence inside the details can't close the block")
 })

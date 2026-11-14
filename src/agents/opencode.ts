@@ -6,6 +6,7 @@ import type { Paths } from "../shared/config.ts"
 import type { Check } from "../shared/module.ts"
 import { runCommand } from "../shared/process.ts"
 import { findBinary, mcpChecks, oneLine, type Agent, type McpServer } from "./agent.ts"
+import { failureDetails } from "./failure.ts"
 import type { Link } from "./links.ts"
 
 /**
@@ -104,6 +105,7 @@ export const openCode: Agent = {
     let lastMessage: string | null = null
     let failure: string | null = null
     let usage: { input: number; cached: number; output: number; costUsd: number | null } | null = null
+    let failedEvent: string | null = null
     for (const line of result.stdout.split("\n")) {
       if (!line.trim()) continue
       let event: z.infer<typeof OpenCodeEvent>
@@ -119,7 +121,10 @@ export const openCode: Agent = {
         texts.set(event.part.messageID, [...(texts.get(event.part.messageID) ?? []), event.part.text])
         lastMessage = event.part.messageID
       }
-      if (event.type === "error") failure = oneLine(JSON.stringify(event.error ?? event))
+      if (event.type === "error") {
+        failure = oneLine(JSON.stringify(event.error ?? event))
+        failedEvent = line
+      }
       // Each step reports its own tokens and cost; OpenCode counts cache reads and writes apart from input.
       if (event.type === "step_finish" && event.part?.tokens) {
         const tokens = event.part.tokens
@@ -133,7 +138,8 @@ export const openCode: Agent = {
     const reply = lastMessage ? texts.get(lastMessage)!.join("\n") : ""
     const resume = session ? `cd ${input.directory} && opencode --session ${session}` : null
     const ok = result.code === 0 && !failure && !!session
-    return { ok, reply, session, resume, usage, error: ok ? null : `OpenCode failed: ${failure ?? result.error ?? (oneLine(result.stderr) || `exit code ${result.code}`)}` }
+    const details = ok ? null : failureDetails(result, { event: failedEvent })
+    return { ok, reply, session, resume, usage, details, error: ok ? null : `OpenCode failed: ${failure ?? result.error ?? (oneLine(result.stderr) || `exit code ${result.code}`)}` }
   },
 
   envNeeds(paths) {

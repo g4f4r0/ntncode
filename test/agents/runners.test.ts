@@ -58,6 +58,7 @@ test("Claude Code's error result, or no result at all, is a failure with the rea
       const output = await claudeCode.run(fake.paths, input(fake.directory))
       assert.equal(output.ok, false)
       assert.match(output.error!, pattern)
+      assert.match(output.details!, /^exit: 1/u, "the raw context comes with the failure")
     } finally {
       fake.restore()
     }
