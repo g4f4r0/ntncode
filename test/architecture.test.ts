@@ -13,6 +13,7 @@ const ALLOWED: Record<string, string[]> = {
   agents: ["shared"],
   scheduler: ["shared"],
   automations: ["shared", "agents", "scheduler"],
+  artifacts: ["shared"],
 }
 
 /** Only the automations runner writes to Notion: every sync stays read-only, and agents never write Runs. */

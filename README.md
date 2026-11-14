@@ -15,6 +15,8 @@ Notion Code is an independent open-source project. It isn't made by or affiliate
    checks that every agent has its MCP servers configured and signed in.
 4. Automations: it runs the rows of a Notion Automations database on their schedules, on the agent each row names, and
    records every run in Notion.
+5. Artifacts: `ntncode artifact publish` puts a file or a small web page in a public bucket and returns a link that
+   never expires, for a Notion comment, a pull request or a client message.
 
 `ntncode serve` does all of it: every sync every 10 minutes, and every automation on its schedule. The syncs only read
 from Notion. Only the automations runner writes to Notion, and only to its Runs.
@@ -132,6 +134,30 @@ command runs with the details on stdin and in `AUTOMATION_*` variables. An agent
 `ntncode alert "<message>"`, which goes through the same command. A Runs update Notion refuses waits in an outbox and
 is retried every tick.
 
+## How artifacts work
+
+Any agent with a shell publishes the same way:
+
+```sh
+ntncode artifact publish ./screenshot.png --title "Checkout, after" --project acme --task <Notion task link>
+ntncode artifact publish ./report        # a folder with an index.html is a page
+```
+
+It prints the link as `url`, with what it stored. A file keeps its name and its type, so a browser shows it. A folder
+needs an `index.html` at its top, and the link opens it. Every flag is optional. `--project` must be a folder under the
+projects folder; without it, the file goes under `shared/`. Inside an automation run, the automation and the run are
+recorded too.
+
+Each publish gets its own folder in the bucket, `<project or shared>/<YYYY-MM>/<16 random hex>/`, with a
+`.artifact.json` holding the title, project, task, automation, run, time and files. The random part keeps links
+unguessable. The bucket itself is the index: nothing is written to Notion.
+
+The bucket is Cloudflare R2, or another S3-compatible store that serves its objects publicly and accepts the signing
+region `auto`; AWS S3 doesn't. Anyone with a link can
+open it, so never publish secrets or private data. To protect a folder, publishing refuses dot-files, such as `.env`,
+and symbolic links, and stops at 100 MiB. `ntncode artifact delete <url>` removes everything one publish stored, and
+refuses anything else in the bucket. A page can't be changed in place: publish it again and use the new link.
+
 ## Install
 
 You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so there's no build step.
@@ -165,12 +191,19 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
        "instructions": "4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
      },
      "onFailure": "~/.config/notion-code/alert.sh",
-     "mcp": ["notion", "executor"]
+     "mcp": ["notion", "executor"],
+     "artifacts": {
+       "bucketUrl": "https://<account>.r2.cloudflarestorage.com/<bucket>",
+       "publicUrl": "https://pub-<id>.r2.dev"
+     }
    }
    ```
 
    `assignee` is your Notion user ID: `bot.owner.user.id` in
    `curl -s https://api.notion.com/v1/users/me -H "Authorization: Bearer $NOTION_ACCESS_TOKEN" -H "Notion-Version: 2026-03-11"`.
+
+   For artifacts, add a key that can read and write only that bucket to `~/.config/secrets.env`, as
+   `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`.
 
 4. Add a `notion.json` to `~/.agents` and to each project folder, then check what a sync would do:
 
@@ -205,6 +238,8 @@ Every command prints one JSON document on stdout; `ntncode help` describes them 
 | `ntncode serve` | The scheduler, run by `ntncode.service`. One JSON line per event, also in `serve.log` |
 | `ntncode run AUT-12 [--wait]` | Starts one run now, read fresh from Notion, even while the row is `Disabled`, for a rehearsal. Needs the scheduler running |
 | `ntncode alert "<message>"` | From inside a run: asks a person for attention through `onFailure` |
+| `ntncode artifact publish <file\|folder> [--title] [--project] [--task]` | Publishes a file, or a folder as a page, and prints its public link |
+| `ntncode artifact delete <url>` | Deletes what one publish stored |
 | `ntncode status` | The scheduler, the runs in progress, and each automation's last and next runs, from local files only |
 | `ntncode help` | The commands, the exit codes and the files, as JSON |
 
@@ -227,6 +262,8 @@ Every error has a `message`, and `doctor` adds a `fix` to each failed check.
 | `automations` | config | off | The Automations and Runs data sources, and the instructions page every run gets |
 | `onFailure` | config | none | A shell command run when a run fails, or an agent calls `ntncode alert` |
 | `mcp` | config | `["notion"]` | The MCP servers every installed agent must have, signed in |
+| `artifacts` | config | off | The public bucket: `bucketUrl`, its S3 endpoint and bucket name, and `publicUrl`, where it is served |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | environment, else `~/.config/secrets.env` | none | The bucket's access key |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME` | environment | `~/.local/state`, `~/.config` | Where the state and config folders go |
 
 The config is validated with Zod: an unknown key, a malformed ID or a bad path is an error that names the key, never
@@ -282,7 +319,8 @@ src/
 ├── skills/          the Notion Skills library → ~/.agents/skills
 ├── agents/          Claude Code, Codex and OpenCode: their links, MCP checks, sign-in needs, and how to run one prompt
 ├── scheduler/       the recurrence engine and the scheduler loop
-└── automations/     rows → automation files, the runner, and Runs
+├── automations/     rows → automation files, the runner, and Runs
+└── artifacts/       files → the public bucket, and their links
 ```
 
 A task has an ID such as `instructions.sync` or `AUT-12`, a kind (`sync` or `run`) and a schedule in iCalendar text. A
@@ -307,6 +345,10 @@ python-dateutil.
    caller's folder. It refuses while the `opencode-automations` plugin is configured, which has no lock and could fire
    its own automations a second time.
 4. There is no webhook trigger; automations run on schedules or by hand.
+5. On some Linux servers, Codex's sandbox can't run shell commands at all (`bwrap: loopback: Failed RTM_NEWADDR`).
+   There, Codex needs full access to run `ntncode artifact`.
+6. Cloudflare rate-limits a bucket's `r2.dev` address and calls it a development address. A custom domain lifts that;
+   only `publicUrl` changes.
 
 ## Roadmap
 

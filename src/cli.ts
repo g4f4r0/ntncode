@@ -4,6 +4,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import { z } from "zod"
+import { ArtifactError, openBucket, publish, remove } from "./artifacts/publish.ts"
 import { readDefinitions } from "./automations/definitions.ts"
 import { requestRun, resultPath, RunResult } from "./automations/index.ts"
 import { alert as sendAlert } from "./automations/runner.ts"
@@ -43,6 +44,16 @@ const COMMANDS = {
     usage: 'ntncode alert "<message>"',
     does: "For an automation run: asks a person for attention now, through the config's onFailure command (an email, a push), with the run's details. Use it where a prompt says to report loudly; the run goes on.",
     prints: "{ ok, command, automation, run, result }",
+  },
+  "artifact publish": {
+    usage: "ntncode artifact publish <file|folder> [--title <text>] [--project <folder>] [--task <Notion task link>]",
+    does: "Publishes a file, or a folder with an index.html as a page, to the public artifacts bucket, at a link that never expires. --project files it under a folder of the projects folder. Anyone with the link can open it: never publish secrets or private data.",
+    prints: "{ ok, command, url, title, project, task, automation, run, created, entry, type, bytes, files }",
+  },
+  "artifact delete": {
+    usage: "ntncode artifact delete <url>",
+    does: "Deletes everything one publish stored, by its link. Refuses anything else in the bucket.",
+    prints: "{ ok, command, url, deleted }",
   },
   status: {
     usage: "ntncode status",
@@ -211,6 +222,32 @@ async function alertCommand(args: string[]): Promise<number> {
   return ok ? EXIT.ok : EXIT.attention
 }
 
+async function artifact(args: string[]): Promise<number> {
+  const [action, ...rest] = args
+  const command = `artifact ${action ?? ""}`.trim()
+  const paths = defaultPaths()
+  const settings = config(paths)
+  try {
+    if (action === "publish") {
+      const { values, positionals } = parseArgs({ args: rest, options: { title: { type: "string" }, project: { type: "string" }, task: { type: "string" } }, strict: true, allowPositionals: true })
+      if (positionals.length !== 1) throw new UsageError("give exactly one file or folder, such as ntncode artifact publish ./report.png")
+      const published = await publish({ source: positionals[0]!, ...values }, { paths: withConfig(paths, settings), config: settings, bucket: openBucket(paths, settings), now: new Date() })
+      print({ ok: true, command, ...published })
+      return EXIT.ok
+    }
+    if (action === "delete") {
+      const { positionals } = parseArgs({ args: rest, options: {}, strict: true, allowPositionals: true })
+      if (positionals.length !== 1) throw new UsageError("give exactly one link, such as ntncode artifact delete https://…/index.html")
+      print({ ok: true, command, ...(await remove(positionals[0]!, { config: settings, bucket: openBucket(paths, settings) })) })
+      return EXIT.ok
+    }
+    throw new UsageError("give publish or delete, such as ntncode artifact publish ./report.png")
+  } catch (error) {
+    if (!(error instanceof ArtifactError)) throw error
+    return fail(command, error.usage ? new UsageError(error.message) : error, error.fix)
+  }
+}
+
 async function status(args: string[]): Promise<number> {
   parseArgs({ args, options: {}, strict: true, allowPositionals: false })
   const paths = withConfig(defaultPaths(), config(defaultPaths()))
@@ -237,9 +274,9 @@ function help(): number {
     commands: COMMANDS,
     exitCodes: { 0: "ok", 1: "needs attention: a failed or skipped result, a doctor error, or a failed run", 2: "usage: bad arguments, no token, or an invalid config" },
     files: {
-      config: "~/.config/notion-code/config.json: { assignee, projects, skills, automations: { automations, runs, instructions }, onFailure, mcp }",
+      config: "~/.config/notion-code/config.json: { assignee, projects, skills, automations: { automations, runs, instructions }, onFailure, mcp, artifacts: { bucketUrl, publicUrl } }",
       notionJson: '~/.agents/notion.json and ~/projects/<folder>/notion.json: { "instructions": "<page ID or link>" }',
-      token: "NOTION_ACCESS_TOKEN, from the environment or ~/.config/secrets.env",
+      token: "NOTION_ACCESS_TOKEN, and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY for artifacts, from the environment or ~/.config/secrets.env",
       state: "~/.local/state/notion-code: state.json, skills.json, scheduler.json, automations/, runs/, outbox/, serve.log, sync.log, backups/",
     },
   })
@@ -247,7 +284,7 @@ function help(): number {
 }
 
 const [command = "help", ...rest] = process.argv.slice(2)
-const handlers: Record<string, (args: string[]) => Promise<number> | number> = { sync, doctor, serve: runServe, run, alert: alertCommand, status, help, "--help": help, "-h": help }
+const handlers: Record<string, (args: string[]) => Promise<number> | number> = { sync, doctor, serve: runServe, run, alert: alertCommand, artifact, status, help, "--help": help, "-h": help }
 const handler = handlers[command]
 if (!handler) process.exitCode = fail(command, new UsageError(`unknown command "${command}"; run ntncode help`))
 else {

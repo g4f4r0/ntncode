@@ -41,6 +41,16 @@ test("the token comes from the environment first, then the secrets file", () => 
   }
 })
 
+test("the artifacts bucket needs an S3 URL with the bucket, and a public URL", () => {
+  const paths = tempHome()
+  fs.writeFileSync(paths.config, JSON.stringify({ artifacts: { bucketUrl: "https://s3.example.test/bucket/", publicUrl: "https://files.example.test/" } }))
+  assert.deepEqual(readConfig(paths.config).artifacts, { bucketUrl: "https://s3.example.test/bucket", publicUrl: "https://files.example.test" })
+  for (const artifacts of [{ bucketUrl: "https://s3.example.test", publicUrl: "https://f.test" }, { bucketUrl: "https://s3.example.test/a/b", publicUrl: "https://f.test" }, { bucketUrl: "https://s3.example.test/b", publicUrl: "ftp://f.test" }, { bucketUrl: "https://s3.example.test/b" }, { bucketUrl: "https://s3.example.test/b", publicUrl: "https://f.test", prefix: "x" }]) {
+    fs.writeFileSync(paths.config, JSON.stringify({ artifacts }))
+    assert.throws(() => readConfig(paths.config))
+  }
+})
+
 test("a projects folder in the config replaces ~/projects", () => {
   const paths = tempHome()
   assert.equal(withConfig(paths, EMPTY_CONFIG).projects, paths.projects)
