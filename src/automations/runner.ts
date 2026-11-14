@@ -94,8 +94,8 @@ export function modelLabel(id: string): string {
   return id
 }
 
-/** A table cell: no pipes or line breaks to break the row. */
-const cell = (text: string) => text.replace(/\|/gu, "\\|").replace(/\s*\n\s*/gu, " ")
+/** A table cell's text on one line, with no markup that could close the cell. */
+const cell = (text: string) => text.replace(/\s*\n\s*/gu, " ").replace(/<(?=\/?t[dr]>|\/?table)/gu, "&lt;")
 
 /** The agent's reply under `## Result`: its own headings move down a level, so the page keeps one structure. */
 const nest = (reply: string) => reply.replace(/^(#{1,5}) /gmu, "#$1 ")
@@ -134,7 +134,8 @@ export function renderReport(input: ReportInput): string {
   const result = input.ok
     ? reply ? nest(cut(reply, REPORT_CHARS)) : "The agent finished without a final reply."
     : `**Failed:** ${input.error ?? "unknown error"}${reply ? `\n\n${nest(cut(reply, REPORT_CHARS))}` : ""}`
-  const table = ["| Detail | Value |", "| --- | --- |", ...rows.map(([name, value]) => `| ${name} | ${cell(value)} |`)].join("\n")
+  // Notion's table markup, because a markdown table always has a header row and this one is name and value pairs.
+  const table = ['<table header-row="false">', ...rows.map(([name, value]) => `<tr>\n<td>${name}</td>\n<td>${cell(value)}</td>\n</tr>`), "</table>"].join("\n")
   return `## Details\n\n${table}\n\n## Result\n\n${result}\n`
 }
 
