@@ -30,7 +30,19 @@ export const AUTOMATION_PROPERTIES = {
 } as const
 
 /** The Runs data source's properties. */
-export const RUN_PROPERTIES = { ID: "unique_id", Title: "title", Automation: "relation", Trigger: "select", Status: "status", Date: "date" } as const
+export const RUN_PROPERTIES = {
+  ID: "unique_id",
+  Title: "title",
+  Automation: "relation",
+  Trigger: "select",
+  Status: "status",
+  Date: "date",
+  Duration: "number",
+  Cost: "number",
+  "Input tokens": "number",
+  "Cached tokens": "number",
+  "Output tokens": "number",
+} as const
 
 /** Select and status options the code relies on; `doctor` checks Notion has each. */
 export const REQUIRED_OPTIONS = {

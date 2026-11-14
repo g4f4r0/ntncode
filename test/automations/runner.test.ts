@@ -123,8 +123,10 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   const markdown = writes.find((write) => write.kind === "markdown")!.body as string
   assert.equal(markdown.replace(/<td>\d+ s<\/td>/u, "<td>N s</td>"), "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Claude Code</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>Opus 5.5</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>High</td>\n</tr>\n<tr>\n<td>Trigger</td>\n<td>Scheduled</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>N s</td>\n</tr>\n<tr>\n<td>Cost</td>\n<td>$0.09</td>\n</tr>\n<tr>\n<td>Tokens</td>\n<td>22.5k in, 18.2k cached, 412 out</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>`sess-1`</td>\n</tr>\n<tr>\n<td>Folder</td>\n<td>`~/projects/acme`</td>\n</tr>\n</table>\n\n## Result\n\nAll good: 0 issues.\n")
   assert.match(markdown, /All good: 0 issues./u)
-  const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown; Date: { date: { end: string } } } }
+  const update = writes.find((write) => write.kind === "update")!.body as { properties: Record<string, { number?: number | null }> & { Status: unknown; Date: { date: { end: string } } } }
   assert.deepEqual(update.properties.Status, { status: { name: "Completed" } })
+  assert.deepEqual([update.properties.Cost!.number, update.properties["Input tokens"]!.number, update.properties["Cached tokens"]!.number, update.properties["Output tokens"]!.number], [0.0901, 22_519, 18_200, 412], "exact numbers views can sum")
+  assert.equal(typeof update.properties.Duration!.number, "number")
   assert.ok(update.properties.Date.date.end)
   assert.equal(readInflight(paths).length, 0)
 })
@@ -152,6 +154,8 @@ test("a failed run is recorded Failed, and the onFailure command gets the detail
   assert.match(fs.readFileSync(out, "utf8"), /automation "Acme daily audit" \(AUT-12\) failed: Claude Code ended with error_max_turns Run RUN-5: https:\/\/app.notion.com\/p\/run5\nAUT-12 RUN-5 failed\n/u)
   const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown } }
   assert.deepEqual(update.properties.Status, { status: { name: "Failed" } })
+  const failed = update as unknown as { properties: Record<string, { number: number | null }> }
+  assert.deepEqual([failed.properties.Cost!.number, failed.properties["Input tokens"]!.number], [null, null], "nothing reported, nothing recorded")
   assert.match(String(writes.find((write) => write.kind === "markdown")!.body), /<td>Trigger<\/td>\n<td>Manual<\/td>[\s\S]*<td>Cost<\/td>\n<td>–<\/td>[\s\S]*<\/table>\n\n## Result\n\n\*\*Failed:\*\* Claude Code ended with error_max_turns\n$/u)
   const result = JSON.parse(fs.readFileSync(resultPath(paths, "req-1"), "utf8"))
   assert.deepEqual([result.status, result.run, result.error], ["Failed", "RUN-5", "Claude Code ended with error_max_turns"])

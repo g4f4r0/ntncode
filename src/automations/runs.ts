@@ -57,12 +57,19 @@ export class Runs {
     return this.toRow(page)
   }
 
+  /** The report, the status, the times, and the numbers views can sum and chart: cost, tokens, seconds. */
   async finish(run: string, input: Finish): Promise<void> {
     await this.writer.replaceMarkdown(run, input.markdown)
+    const usage = input.usage ?? null
     await this.writer.updatePage(run, {
       properties: {
         Status: { status: { name: input.status } },
         Date: { date: { start: input.startedAt, end: input.finishedAt } },
+        Duration: { number: Math.max(0, Math.round((Date.parse(input.finishedAt) - Date.parse(input.startedAt)) / 1000)) },
+        Cost: { number: usage?.costUsd != null ? Math.round(usage.costUsd * 10_000) / 10_000 : null },
+        "Input tokens": { number: usage ? usage.input : null },
+        "Cached tokens": { number: usage ? usage.cached : null },
+        "Output tokens": { number: usage ? usage.output : null },
       },
     })
   }
@@ -99,6 +106,8 @@ export interface Finish {
   startedAt: string
   finishedAt: string
   markdown: string
+  /** What the agent reported using; null or missing when it reported nothing. */
+  usage?: { input: number; cached: number; output: number; costUsd: number | null } | null
 }
 
 /** A run that has started and not finished: on the next start, one left by a stopped scheduler is marked Failed. */
@@ -125,7 +134,17 @@ export const Inflight = z.strictObject({
 export type Inflight = z.infer<typeof Inflight>
 
 /** A Runs update that couldn't reach Notion, retried on every tick until it does. */
-export const Outbox = z.strictObject({ run: z.string(), id: z.string(), finish: z.strictObject({ status: z.enum(["Completed", "Failed"]), startedAt: z.string(), finishedAt: z.string(), markdown: z.string() }) })
+export const Outbox = z.strictObject({
+  run: z.string(),
+  id: z.string(),
+  finish: z.strictObject({
+    status: z.enum(["Completed", "Failed"]),
+    startedAt: z.string(),
+    finishedAt: z.string(),
+    markdown: z.string(),
+    usage: z.strictObject({ input: z.number(), cached: z.number(), output: z.number(), costUsd: z.number().nullable() }).nullable().optional(),
+  }),
+})
 
 export const runsFolder = (paths: Paths) => path.join(paths.state, "runs")
 export const outboxFolder = (paths: Paths) => path.join(paths.state, "outbox")

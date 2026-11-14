@@ -273,6 +273,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     startedAt,
     finishedAt,
     markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, session, folder: show(paths, definition.directory), usage, trigger, at: input.at, startedAt, finishedAt, ok, reply, error }),
+    usage,
   }
   let recorded = "recorded in Notion"
   try {

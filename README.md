@@ -98,6 +98,7 @@ which only Notion Code writes.
 | Trigger | Select: `Scheduled`, `Manual` | |
 | Status | Status: `In progress`, `Completed`, `Failed` | |
 | Date | Date range | From start to finish |
+| Duration, Cost, Input tokens, Cached tokens, Output tokens | Numbers | Seconds, the agent's cost estimate, and its token counts, exact, for views that sum or chart them; empty when the agent reports none |
 | Page body | | `## Details`, the same table every time, with no header row (Agent, Model, Effort, Trigger, Duration, Cost, Tokens, Session, Folder), and `## Result`, the agent's final reply or the error |
 
 `ntncode doctor` checks that both data sources have every property, with the right type and options.
