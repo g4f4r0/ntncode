@@ -7,6 +7,6 @@ Wants=network-online.target
 Type=oneshot
 Environment=PATH=%h/.bun/bin:%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=-%h/.config/secrets.env
-ExecStart=%h/projects/g4f4r0/notion-code/bin/ntncode sync
+ExecStart=%h/.local/bin/ntncode sync
 TimeoutStartSec=300
 Nice=10

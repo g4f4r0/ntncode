@@ -33,7 +33,8 @@ The sync looks in exactly two places, and nowhere else:
 | `~/.agents/notion.json` | `~/.agents/AGENTS.md` | every session, through the links below |
 | `~/projects/<folder>/notion.json` | `~/projects/<folder>/AGENTS.md` | sessions in that folder or any folder inside it |
 
-It only checks folders directly under `~/projects`, not anything deeper.
+It only checks folders directly under the projects folder, not anything deeper. The projects folder is `~/projects`
+unless you set `projects` in the config.
 
 Each agent finds the files its own way, so the sync creates these links once:
 
@@ -58,11 +59,11 @@ repository inside it. `ntncode doctor` checks for it.
 
 You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so there's no build step.
 
-1. Clone the repository and put the command on your PATH:
+1. Clone the repository anywhere, and put the command on your PATH. The examples use `~/src/notion-code`:
 
    ```sh
-   git clone https://github.com/g4f4r0/notion-code.git ~/projects/g4f4r0/notion-code
-   ln -s ~/projects/g4f4r0/notion-code/bin/ntncode ~/.local/bin/ntncode
+   git clone https://github.com/g4f4r0/notion-code.git ~/src/notion-code
+   ln -s ~/src/notion-code/bin/ntncode ~/.local/bin/ntncode
    ```
 
 2. Create a personal access token in Notion's [developer portal](https://www.notion.so/developers/tokens) with the
@@ -73,10 +74,21 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
    NOTION_ACCESS_TOKEN=ntn_...
    ```
 
-3. Write the config file, `~/.config/notion-code/config.json`, naming the Notion user this installation works for:
+3. Write the config file, `~/.config/notion-code/config.json`. `owner` is the Notion user this installation works
+   for. `projects` is only needed when your projects aren't in `~/projects`:
 
    ```json
-   { "owner": "<your Notion user ID>" }
+   {
+     "owner": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "projects": "~/code"
+   }
+   ```
+
+   Your user ID is the token owner's, `bot.owner.user.id` in:
+
+   ```sh
+   curl -s https://api.notion.com/v1/users/me \
+     -H "Authorization: Bearer $NOTION_ACCESS_TOKEN" -H "Notion-Version: 2026-03-11"
    ```
 
 4. Add a `notion.json` to `~/.agents` and to each project folder, then check what a sync would do:
@@ -91,13 +103,14 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
 6. Start the timer, which syncs every 10 minutes:
 
    ```sh
-   ln -s ~/projects/g4f4r0/notion-code/systemd/ntncode-sync.service ~/.config/systemd/user/
-   ln -s ~/projects/g4f4r0/notion-code/systemd/ntncode-sync.timer ~/.config/systemd/user/
+   ln -s ~/src/notion-code/systemd/ntncode-sync.service ~/.config/systemd/user/
+   ln -s ~/src/notion-code/systemd/ntncode-sync.timer ~/.config/systemd/user/
    systemctl --user daemon-reload
    systemctl --user enable --now ntncode-sync.timer
    ```
 
-   On a server, run `loginctl enable-linger $USER` once, or the timer stops when you log out.
+   The service runs `~/.local/bin/ntncode`, the link from step 1. On a server, run `loginctl enable-linger $USER`
+   once, or the timer stops when you log out.
 
 ## Commands
 
@@ -139,11 +152,12 @@ linked     ~/.claude/skills  → /home/you/.agents/skills
 | --- | --- | --- | --- |
 | `NOTION_ACCESS_TOKEN` | environment, else `~/.config/secrets.env` | none | The Notion token. The file may use `export` and quotes |
 | `owner` | `~/.config/notion-code/config.json` | none | The Notion user this installation works for. Automations will run only the owner's |
+| `projects` | `~/.config/notion-code/config.json` | `~/projects` | The folder whose direct children may hold a `notion.json`. An absolute path, or one starting with `~/` |
 | `XDG_STATE_HOME` | environment | `~/.local/state` | Where the `notion-code` state folder goes |
 | `XDG_CONFIG_HOME` | environment | `~/.config` | Where the `notion-code` config folder goes |
 
 The config file rejects any key it doesn't know and any owner that isn't a Notion user ID, so a typo shows up as an
-error instead of being ignored. `notion.json` works the same way: its one key is `instructions`, which takes a page
+error instead of being ignored. So does a `projects` path that is neither absolute nor starting with `~/`. `notion.json` works the same way: its one key is `instructions`, which takes a page
 ID, with or without dashes, or a page link.
 
 ## Safety rules
@@ -191,7 +205,7 @@ The timer's output goes to the journal: `journalctl --user -u ntncode-sync`.
 1. To change instructions, edit the page in Notion. New sessions get the new text after the next sync, within 10
    minutes; sessions already running keep what they started with. Run `ntncode sync` to skip the wait.
 2. To add a project, create its page in Notion, then write `{ "instructions": "<page id>" }` to
-   `~/projects/<folder>/notion.json`. Do this once on each machine.
+   `notion.json` in the project's folder. Do this once on each machine.
 3. To stop syncing a folder, delete its `notion.json`. Its `AGENTS.md` stays, as a normal file.
 
 ## Notion's tools for agents
@@ -233,8 +247,8 @@ bun test
 bun run typecheck
 ```
 
-The Notion client and the markdown conversion come from opencode-notion in
-[g4f4r0/opencode-plugins](https://github.com/g4f4r0/opencode-plugins), under its MIT license.
+The Notion client and the markdown conversion are adapted from opencode-notion, under its MIT license; its notice is
+kept in `LICENSE`.
 
 ## Roadmap
 

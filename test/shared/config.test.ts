@@ -1,21 +1,22 @@
 import assert from "node:assert/strict"
 import fs from "node:fs"
 import { test } from "node:test"
-import { readConfig, readToken } from "../../src/shared/config.ts"
+import path from "node:path"
+import { readConfig, readToken, withConfig } from "../../src/shared/config.ts"
 import { tempHome } from "../helpers.ts"
 
 const OWNER = "5f6e7d8c-9b0a-4f1e-8d2c-3b4a5f6e7d8c"
 
 test("a missing config is the default; a valid one is read", () => {
   const paths = tempHome()
-  assert.deepEqual(readConfig(paths.config), { owner: null })
+  assert.deepEqual(readConfig(paths.config), { owner: null, projects: null })
   fs.writeFileSync(paths.config, JSON.stringify({ owner: OWNER }))
-  assert.deepEqual(readConfig(paths.config), { owner: OWNER })
+  assert.deepEqual(readConfig(paths.config), { owner: OWNER, projects: null })
 })
 
 test("an unknown key, a bad owner, or broken JSON is an error, never ignored", () => {
   const paths = tempHome()
-  for (const content of [JSON.stringify({ owner: OWNER, ownr: "x" }), JSON.stringify({ owner: "Johan" }), "{ nope", "[]"]) {
+  for (const content of [JSON.stringify({ owner: OWNER, ownr: "x" }), JSON.stringify({ owner: "Johan" }), JSON.stringify({ projects: "code" }), "{ nope", "[]"]) {
     fs.writeFileSync(paths.config, content)
     assert.throws(() => readConfig(paths.config))
   }
@@ -35,4 +36,11 @@ test("the token comes from the environment first, then the secrets file", () => 
     if (saved === undefined) delete process.env.NOTION_ACCESS_TOKEN
     else process.env.NOTION_ACCESS_TOKEN = saved
   }
+})
+
+test("a projects folder in the config replaces ~/projects", () => {
+  const paths = tempHome()
+  assert.equal(withConfig(paths, { owner: null, projects: null }).projects, paths.projects)
+  assert.equal(withConfig(paths, { owner: null, projects: "~/code" }).projects, path.join(paths.home, "code"))
+  assert.equal(withConfig(paths, { owner: null, projects: "/srv/work" }).projects, "/srv/work")
 })

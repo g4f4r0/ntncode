@@ -53,7 +53,7 @@ interface Mapping {
   page: string
 }
 
-/** The notion.json files: ~/.agents/notion.json and ~/projects/<folder>/notion.json, nowhere else. */
+/** The notion.json files: ~/.agents/notion.json and <projects folder>/<folder>/notion.json, nowhere else. */
 export function findMappings(paths: Paths): { mappings: Mapping[]; problems: Result[] } {
   const sources = [path.join(paths.agents, "notion.json")]
   const entries = lstat(paths.projects)?.isDirectory() ? fs.readdirSync(paths.projects, { withFileTypes: true }) : []

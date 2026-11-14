@@ -1,6 +1,7 @@
 MIT License
 
-Copyright (c) 2026 Michael Yong
+Copyright (c) 2026 Johan Gafaro
+Copyright (c) 2026 Michael Yong (the Notion client and markdown conversion, adapted from opencode-notion)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

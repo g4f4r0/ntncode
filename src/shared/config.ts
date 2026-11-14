@@ -7,7 +7,7 @@ export interface Paths {
   home: string
   /** ~/.agents: the global notion.json, AGENTS.md and skills. */
   agents: string
-  /** ~/projects: each direct child folder may hold a notion.json. */
+  /** The projects folder, ~/projects unless the config says otherwise: each direct child may hold a notion.json. */
   projects: string
   /** State, logs and backups. */
   state: string
@@ -32,14 +32,16 @@ export function defaultPaths(home = os.homedir()): Paths {
 export interface Config {
   /** The Notion user this installation runs automations for. */
   owner: string | null
+  /** The projects folder, if not ~/projects. An absolute path, or one starting with `~/`. */
+  projects: string | null
 }
 
-const KEYS = ["owner"] as const
+const KEYS = ["owner", "projects"] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
 /** Reads the config file. A missing file is the default; an unknown key or a bad value is an error, never ignored. */
 export function readConfig(file: string): Config {
-  if (!fs.existsSync(file)) return { owner: null }
+  if (!fs.existsSync(file)) return { owner: null, projects: null }
   let value: unknown
   try {
     value = JSON.parse(fs.readFileSync(file, "utf8"))
@@ -51,7 +53,18 @@ export function readConfig(file: string): Config {
   if (unknown.length) throw new Error(`${file}: unknown key ${unknown.map((key) => `"${key}"`).join(", ")}; allowed: ${KEYS.join(", ")}`)
   const owner = (value as { owner?: unknown }).owner
   if (owner !== undefined && (typeof owner !== "string" || !UUID.test(owner))) throw new Error(`${file}: "owner" must be a Notion user ID`)
-  return { owner: owner ?? null }
+  const projects = (value as { projects?: unknown }).projects
+  if (projects !== undefined && (typeof projects !== "string" || !(projects.startsWith("/") || projects.startsWith("~/")))) {
+    throw new Error(`${file}: "projects" must be an absolute path or start with ~/`)
+  }
+  return { owner: owner ?? null, projects: projects ?? null }
+}
+
+/** The paths with the config applied: a projects folder it names replaces ~/projects. */
+export function withConfig(paths: Paths, config: Config): Paths {
+  if (!config.projects) return paths
+  const projects = config.projects.startsWith("~/") ? path.join(paths.home, config.projects.slice(2)) : config.projects
+  return { ...paths, projects: path.resolve(projects) }
 }
 
 /** NOTION_ACCESS_TOKEN from the environment, else from the secrets file. */

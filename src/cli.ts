@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { modules } from "./modules.ts"
-import { defaultPaths, readConfig, readToken, type Paths } from "./shared/config.ts"
+import { defaultPaths, readConfig, readToken, withConfig, type Paths } from "./shared/config.ts"
 import { acquireLock, writeAtomic } from "./shared/files.ts"
 import { needsAttention, type Check, type Context, type Result } from "./shared/module.ts"
 import { createNotion } from "./shared/notion.ts"
@@ -12,7 +12,8 @@ const USAGE = `ntncode: Notion Code, Notion as the source of truth for every cod
   ntncode doctor             check that every agent reads the same files
   ntncode help
 
-notion.json, in ~/.agents or a folder directly under ~/projects: { "instructions": "<Notion page ID or link>" }
+notion.json, in ~/.agents or a folder directly under the projects folder (~/projects unless the config says otherwise):
+  { "instructions": "<Notion page ID or link>" }
 Token: NOTION_ACCESS_TOKEN, from the environment or ~/.config/secrets.env.
 Config: ~/.config/notion-code/config.json.
 `
@@ -22,7 +23,8 @@ const show = (paths: Paths, file: string) => (file.startsWith(`${paths.home}/`) 
 function context(paths: Paths, dryRun: boolean): Context | string {
   const token = readToken(paths.secrets)
   if (!token) return `No Notion token: set NOTION_ACCESS_TOKEN in the environment or in ${show(paths, paths.secrets)}.`
-  return { paths, config: readConfig(paths.config), notion: createNotion(token), dryRun, now: new Date() }
+  const config = readConfig(paths.config)
+  return { paths: withConfig(paths, config), config, notion: createNotion(token), dryRun, now: new Date() }
 }
 
 function printResults(paths: Paths, results: Result[]): void {
@@ -75,7 +77,7 @@ async function doctor(): Promise<number> {
     checks.push({ ok: false, name: show(paths, paths.config), detail: (error as Error).message })
   }
   if (token && config) {
-    const ready: Context = { paths, config, notion: createNotion(token), dryRun: true, now: new Date() }
+    const ready: Context = { paths: withConfig(paths, config), config, notion: createNotion(token), dryRun: true, now: new Date() }
     for (const module of modules) checks.push(...((await module.checks?.(ready)) ?? []))
   }
   const width = Math.max(...checks.map((check) => check.name.length))
