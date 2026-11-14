@@ -1,0 +1,229 @@
+import fs from "node:fs"
+import path from "node:path"
+import { hash, lstat, readJson, writeAtomic } from "./files.ts"
+import { normalizeNotionMarkdown } from "./markdown.ts"
+import { getTitle, type Notion } from "./notion.ts"
+
+/** Every file this tool writes starts with this; a file without it is never overwritten. */
+export const HEADER_PREFIX = "<!-- Synced from Notion"
+
+export interface Paths {
+  home: string
+  /** ~/.agents: the global notion.json, AGENTS.md and skills. */
+  agents: string
+  /** ~/projects: each direct child folder may hold a notion.json. */
+  projects: string
+  state: string
+}
+
+export function defaultPaths(home: string): Paths {
+  return {
+    home,
+    agents: path.join(home, ".agents"),
+    projects: path.join(home, "projects"),
+    state: path.join(process.env.XDG_STATE_HOME || path.join(home, ".local/state"), "notion-agents"),
+  }
+}
+
+export type Status = "written" | "unchanged" | "skipped" | "failed" | "linked" | "would write" | "would link"
+
+export interface Result {
+  status: Status
+  path: string
+  detail: string
+}
+
+interface FileState {
+  page: string
+  /** The page's last_edited_time at the sync. Notion rounds it to the minute. */
+  edited: string
+  /** When the file was last checked against Notion. */
+  synced: string
+  hash: string
+}
+
+/** Notion rounds last_edited_time down to the minute; trust it only when the last sync ran well after that minute. */
+const SETTLED_MS = 120_000
+
+interface State {
+  version: 1
+  files: Record<string, FileState>
+}
+
+/** A Notion page ID from an ID or a link, in its dashed form; null when there is none. */
+export function parsePageId(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  // A link's ?v= is a view and #… a block: only the path names the page. An ID must stand alone, so a title slug
+  // ending in a hex letter ("Acme-<id>") does not run into it.
+  const text = value.trim().toLowerCase().split(/[?#]/u)[0]!
+  const matches = text.match(/(?<![0-9a-f])(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f])/gu)
+  const id = matches?.at(-1)?.replaceAll("-", "")
+  return id ? `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}` : null
+}
+
+interface Mapping {
+  /** The notion.json. */
+  source: string
+  /** The AGENTS.md beside it. */
+  target: string
+  page: string
+}
+
+/** The notion.json files: ~/.agents/notion.json and ~/projects/<folder>/notion.json, nowhere else. */
+export function findMappings(paths: Paths): { mappings: Mapping[]; problems: Result[] } {
+  const sources = [path.join(paths.agents, "notion.json")]
+  const entries = lstat(paths.projects)?.isDirectory() ? fs.readdirSync(paths.projects, { withFileTypes: true }) : []
+  for (const entry of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    if (entry.isDirectory()) sources.push(path.join(paths.projects, entry.name, "notion.json"))
+  }
+
+  const mappings: Mapping[] = []
+  const problems: Result[] = []
+  for (const source of sources) {
+    const stats = lstat(source)
+    if (!stats) continue
+    const target = path.join(path.dirname(source), "AGENTS.md")
+    const fail = (detail: string) => problems.push({ status: "failed", path: target, detail: `${source}: ${detail}` })
+    if (!stats.isFile()) {
+      fail("not a regular file")
+      continue
+    }
+    let value: unknown
+    try {
+      value = JSON.parse(fs.readFileSync(source, "utf8"))
+    } catch (error) {
+      fail(`not valid JSON (${(error as Error).message})`)
+      continue
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      fail('must be an object, { "instructions": "<Notion page ID or link>" }')
+      continue
+    }
+    const unknown = Object.keys(value).filter((key) => key !== "instructions")
+    if (unknown.length) {
+      fail(`unknown key ${unknown.map((key) => `"${key}"`).join(", ")}; only "instructions" is allowed`)
+      continue
+    }
+    const page = parsePageId((value as { instructions?: unknown }).instructions)
+    if (!page) {
+      fail('"instructions" must be a Notion page ID or link')
+      continue
+    }
+    mappings.push({ source, target, page })
+  }
+  return { mappings, problems }
+}
+
+function header(title: string, url: string | undefined): string {
+  const name = title ? `"${title.replaceAll("--", "-")}"` : "a page"
+  return `${HEADER_PREFIX}: ${name}${url ? ` (${url})` : ""}. Edit it in Notion; notion-agents replaces this file on every sync. -->`
+}
+
+interface Planned {
+  mapping: Mapping
+  content: string
+  edited: string
+  /** The file is ours but was edited since it was written: back it up before replacing it. */
+  editedByHand: boolean
+}
+
+/**
+ * Writes each notion.json's page to the AGENTS.md beside it. Every Notion read finishes before anything is written.
+ * A file is never overwritten unless it starts with the header, never written through a link, and never deleted;
+ * when Notion fails for a page, its file keeps its last good copy.
+ */
+export async function syncInstructions(notion: Notion, paths: Paths, { dryRun = false, now = new Date() } = {}): Promise<Result[]> {
+  const statePath = path.join(paths.state, "state.json")
+  const state = readJson<State>(statePath, { version: 1, files: {} })
+  const { mappings, problems } = findMappings(paths)
+  const results: Result[] = [...problems]
+  const planned: Planned[] = []
+
+  for (const mapping of mappings) {
+    const { target } = mapping
+    const stats = lstat(target)
+    if (stats && !stats.isFile()) {
+      results.push({ status: "skipped", path: target, detail: `${stats.isSymbolicLink() ? "is a link" : "is not a regular file"}; left as it is` })
+      continue
+    }
+    const current = stats ? fs.readFileSync(target, "utf8") : null
+    if (current !== null && !current.startsWith(HEADER_PREFIX)) {
+      results.push({ status: "skipped", path: target, detail: `written by hand (no "${HEADER_PREFIX}" first line); left as it is` })
+      continue
+    }
+
+    try {
+      const page = await notion.getPage(mapping.page)
+      if (page.in_trash || page.archived) throw new Error("the page is in Notion's trash")
+      const edited = page.last_edited_time ?? ""
+      const known = state.files[target]
+      const currentHash = current === null ? null : hash(current)
+      const settled = !!known && Date.parse(known.synced) - Date.parse(edited) > SETTLED_MS
+      if (known && known.page === mapping.page && edited && known.edited === edited && known.hash === currentHash && settled) {
+        results.push({ status: "unchanged", path: target, detail: `Notion "${getTitle(page)}" not edited since the last sync` })
+        continue
+      }
+      const text = normalizeNotionMarkdown(await notion.getPageMarkdown(mapping.page)).trim()
+      if (!text) throw new Error("the page is empty")
+      const content = `${header(getTitle(page), page.url)}\n\n${text}\n`
+      // Ours by its header, but not what was last written (or no record of it): keep a copy before replacing it.
+      const editedByHand = current !== null && current !== content && (!known || known.hash !== currentHash)
+      planned.push({ mapping, content, edited, editedByHand })
+    } catch (error) {
+      results.push({ status: "failed", path: target, detail: `${(error as Error).message}; kept the file as it is` })
+    }
+  }
+
+  const stamp = now.toISOString().replaceAll(":", "-")
+  for (const { mapping, content, edited, editedByHand } of planned) {
+    const { target } = mapping
+    const current = lstat(target) ? fs.readFileSync(target, "utf8") : null
+    if (current === content) {
+      results.push({ status: "unchanged", path: target, detail: "content already matches Notion" })
+    } else if (dryRun) {
+      results.push({ status: "would write", path: target, detail: current === null ? "new file" : editedByHand ? "replaces a hand edit (would back it up)" : "updated in Notion" })
+      continue
+    } else {
+      let detail = current === null ? "new file" : "updated from Notion"
+      if (editedByHand) {
+        const backup = path.join(paths.state, "backups", stamp, path.relative(paths.home, target))
+        fs.mkdirSync(path.dirname(backup), { recursive: true })
+        fs.copyFileSync(target, backup)
+        detail = `replaced a hand edit; the edited copy is in ${backup}`
+      }
+      writeAtomic(target, content)
+      results.push({ status: "written", path: target, detail })
+    }
+    state.files[target] = { page: mapping.page, edited, synced: now.toISOString(), hash: hash(content) }
+  }
+
+  if (!dryRun) {
+    fs.mkdirSync(paths.state, { recursive: true })
+    writeAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`)
+  }
+  return results
+}
+
+/** The harness paths that point into ~/.agents, so there is one copy of everything. */
+export function linksFor(paths: Paths): { link: string; target: string }[] {
+  const agentsFile = path.join(paths.agents, "AGENTS.md")
+  return [
+    { link: path.join(paths.home, ".claude/CLAUDE.md"), target: agentsFile },
+    { link: path.join(paths.home, ".codex/AGENTS.md"), target: agentsFile },
+    { link: path.join(paths.home, ".claude/skills"), target: path.join(paths.agents, "skills") },
+  ]
+}
+
+/** Creates each missing link (relative, as `../.agents/...`). Anything else already at a link's path is left alone. */
+export function ensureLinks(paths: Paths, { dryRun = false } = {}): Result[] {
+  return linksFor(paths).flatMap(({ link, target }): Result[] => {
+    const stats = lstat(link)
+    if (stats?.isSymbolicLink() && path.resolve(path.dirname(link), fs.readlinkSync(link)) === target) return []
+    if (stats) return [{ status: "skipped", path: link, detail: `something else is there; left it alone (expected a link to ${target})` }]
+    if (!lstat(target)) return [{ status: "skipped", path: link, detail: `${target} does not exist yet; no link made` }]
+    if (dryRun) return [{ status: "would link", path: link, detail: `→ ${target}` }]
+    fs.mkdirSync(path.dirname(link), { recursive: true })
+    fs.symlinkSync(path.relative(path.dirname(link), target), link)
+    return [{ status: "linked", path: link, detail: `→ ${target}` }]
+  })
+}

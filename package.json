@@ -1,0 +1,22 @@
+{
+  "name": "notion-agents",
+  "version": "0.1.0",
+  "description": "Syncs Notion pages to the AGENTS.md files that Claude Code, Codex and OpenCode read.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "notion-agents": "bin/notion-agents"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  }
+}
