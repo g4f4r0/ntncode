@@ -10,16 +10,16 @@ const OWNER = "5f6e7d8c-9b0a-4f1e-8d2c-3b4a5f6e7d8c"
 test("a missing config is the default; a valid one is read", () => {
   const paths = tempHome()
   assert.deepEqual(readConfig(paths.config), EMPTY_CONFIG)
-  fs.writeFileSync(paths.config, JSON.stringify({ owner: OWNER }))
-  assert.deepEqual(readConfig(paths.config), { ...EMPTY_CONFIG, owner: OWNER })
-  const full = { owner: OWNER.replaceAll("-", "").toUpperCase(), skills: OWNER, automations: { automations: OWNER, runs: OWNER }, onFailure: "~/alert.sh", mcp: ["notion", "executor"] }
+  fs.writeFileSync(paths.config, JSON.stringify({ assignee: OWNER }))
+  assert.deepEqual(readConfig(paths.config), { ...EMPTY_CONFIG, assignee: OWNER })
+  const full = { assignee: OWNER.replaceAll("-", "").toUpperCase(), skills: OWNER, automations: { automations: OWNER, runs: OWNER }, onFailure: "~/alert.sh", mcp: ["notion", "executor"] }
   fs.writeFileSync(paths.config, JSON.stringify(full))
-  assert.deepEqual(readConfig(paths.config), { ...EMPTY_CONFIG, owner: OWNER, skills: OWNER, automations: { automations: OWNER, runs: OWNER, instructions: null }, onFailure: "~/alert.sh", mcp: ["notion", "executor"] })
+  assert.deepEqual(readConfig(paths.config), { ...EMPTY_CONFIG, assignee: OWNER, skills: OWNER, automations: { automations: OWNER, runs: OWNER, instructions: null }, onFailure: "~/alert.sh", mcp: ["notion", "executor"] })
 })
 
-test("an unknown key, a bad owner, or broken JSON is an error, never ignored", () => {
+test("an unknown key, a bad assignee, or broken JSON is an error, never ignored", () => {
   const paths = tempHome()
-  for (const content of [JSON.stringify({ owner: OWNER, ownr: "x" }), JSON.stringify({ owner: "Johan" }), JSON.stringify({ projects: "code" }), JSON.stringify({ automations: { automations: OWNER } }), JSON.stringify({ automations: { automations: OWNER, runs: OWNER, extra: 1 } }), JSON.stringify({ mcp: ["no spaces"] }), JSON.stringify({ onFailure: "" }), "{ nope", "[]"]) {
+  for (const content of [JSON.stringify({ assignee: OWNER, ownr: "x" }), JSON.stringify({ assignee: "Johan" }), JSON.stringify({ projects: "code" }), JSON.stringify({ automations: { automations: OWNER } }), JSON.stringify({ automations: { automations: OWNER, runs: OWNER, extra: 1 } }), JSON.stringify({ mcp: ["no spaces"] }), JSON.stringify({ onFailure: "" }), "{ nope", "[]"]) {
     fs.writeFileSync(paths.config, content)
     assert.throws(() => readConfig(paths.config))
   }

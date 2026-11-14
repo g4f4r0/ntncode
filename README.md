@@ -81,7 +81,7 @@ which only Notion Code writes.
 | --- | --- | --- |
 | ID | Unique ID, prefix `AUT` | Set by Notion |
 | Title | Title | What it does |
-| Owner | Person | Who it runs for; each installation runs only its owner's automations |
+| Assignee | Person | Who it runs for: each installation runs only the automations assigned to its `assignee`. One person per row, so two installations never race for the same run |
 | Project | Relation to a Projects database with a `Folder` text property | The agent runs in `~/projects/<Folder>`; empty runs it in the state's `workspace` folder |
 | Status | Status: `Disabled`, `Enabled` | Only `Enabled` runs |
 | Agent | Select: `Claude Code`, `Codex`, `OpenCode` | The agent that runs it |
@@ -109,8 +109,8 @@ matches python-dateutil on every tested case.
 
 What makes an automation run:
 
-1. Its Owner is this installation's `owner`, and the owner made the row's last edit. An edit made through the API or an
-   agent shows as the token's bot, so an agent's own change never runs until the owner touches the row. Setting
+1. Its Assignee is this installation's `assignee`, and the assignee made the row's last edit. An edit made through the
+   API or an agent shows as the token's bot, so an agent's own change never runs until the assignee touches the row. Setting
    `Disabled` always takes effect, whoever does it.
 2. Each accepted row becomes an automation file in the state folder, and the scheduler reads those files, not Notion.
 3. A scheduled run first looks for its Title in Runs, so the same scheduled minute never runs twice, even if the state
@@ -154,7 +154,7 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
 
    ```json
    {
-     "owner": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+     "assignee": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
      "skills": "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e",
      "automations": {
        "automations": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
@@ -166,7 +166,7 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
    }
    ```
 
-   `owner` is your Notion user ID: `bot.owner.user.id` in
+   `assignee` is your Notion user ID: `bot.owner.user.id` in
    `curl -s https://api.notion.com/v1/users/me -H "Authorization: Bearer $NOTION_ACCESS_TOKEN" -H "Notion-Version: 2026-03-11"`.
 
 4. Add a `notion.json` to `~/.agents` and to each project folder, then check what a sync would do:
@@ -218,7 +218,7 @@ Every error has a `message`, and `doctor` adds a `fix` to each failed check.
 | Setting | Where | Default | Effect |
 | --- | --- | --- | --- |
 | `NOTION_ACCESS_TOKEN` | environment, else `~/.config/secrets.env` | none | The Notion token |
-| `owner` | config | none | The Notion user this installation runs automations for |
+| `assignee` | config | none | The Notion user this installation runs automations for |
 | `projects` | config | `~/projects` | The folder whose direct children may hold a `notion.json`, and where project automations run |
 | `skills` | config | off | The Notion Skills data source |
 | `automations` | config | off | The Automations and Runs data sources, and the instructions page every run gets |
@@ -239,7 +239,7 @@ ignored. `notion.json`, every state file and every automation file are validated
 5. It finishes every Notion read before writing anything; when Notion fails, everything keeps its last good copy.
 6. It writes each file to a temporary name and renames it, so no agent reads half a file.
 7. One sync runs at a time, with `flock`, and one scheduler.
-8. An automation runs only for its owner, only after the owner's own edit, never twice for one scheduled minute, and
+8. An automation runs only for its assignee, only after the assignee's own edit, never twice for one scheduled minute, and
    never twice at once.
 
 ## Speed and Notion's limits

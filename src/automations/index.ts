@@ -163,9 +163,9 @@ async function automationChecks(context: Context): Promise<Check[]> {
   try {
     const me = await notion.me()
     const tokenOwner = me.bot?.owner?.user?.id ?? null
-    if (!config.owner) checks.push({ ok: false, level: "error", name: "owner", detail: "not set: no automation runs", fix: `set "owner" in the config to your Notion user ID${tokenOwner ? `, ${tokenOwner} for this token` : ""}` })
-    else if (tokenOwner && tokenOwner !== config.owner) checks.push({ ok: false, level: "warning", name: "owner", detail: `${config.owner} isn't the token's owner (${tokenOwner}); only rows owned by and last edited by ${config.owner} run` })
-    else checks.push({ ok: true, name: "owner", detail: `${config.owner}; API edits show as ${me.name ?? me.id} (${me.id}), so they never count as the owner's` })
+    if (!config.assignee) checks.push({ ok: false, level: "error", name: "assignee", detail: "not set: no automation runs", fix: `set "assignee" in the config to your Notion user ID${tokenOwner ? `, ${tokenOwner} for this token` : ""}` })
+    else if (tokenOwner && tokenOwner !== config.assignee) checks.push({ ok: false, level: "warning", name: "assignee", detail: `${config.assignee} isn't the token's owner (${tokenOwner}); only rows assigned to and last edited by ${config.assignee} run` })
+    else checks.push({ ok: true, name: "assignee", detail: `${config.assignee}; API edits show as ${me.name ?? me.id} (${me.id}), so they never count as the assignee's` })
   } catch (error) {
     checks.push({ ok: false, level: "error", name: "Notion token", detail: (error as Error).message })
   }
@@ -187,7 +187,7 @@ async function automationChecks(context: Context): Promise<Check[]> {
 
   // What the next sync would do, without writing: every row that won't run says why.
   for (const result of await syncAutomations(notion, paths, config, { dryRun: true, now })) {
-    if (result.status === "failed" || result.status === "skipped") checks.push({ ok: false, level: result.status === "failed" ? "error" : "warning", name: `automation ${show(paths, result.path)}`, detail: result.detail, fix: "fix the row in Notion; the owner's own edit makes it runnable" })
+    if (result.status === "failed" || result.status === "skipped") checks.push({ ok: false, level: result.status === "failed" ? "error" : "warning", name: `automation ${show(paths, result.path)}`, detail: result.detail, fix: "fix the row in Notion; the assignee's own edit makes it runnable" })
     else if (result.status.startsWith("would")) checks.push({ ok: true, name: `automation ${show(paths, result.path)}`, detail: `next sync: ${result.status}: ${result.detail}` })
   }
 
@@ -239,12 +239,12 @@ const AutomationRef = z
 
 /**
  * Reads the row now, from Notion, so a Disabled row can run for a rehearsal, and queues it for the scheduler. The
- * owner must be this installation's owner, so `ntncode run` never runs someone else's automation.
+ * Assignee must be this installation's assignee, so `ntncode run` never runs someone else's automation.
  */
 export async function requestRun(context: Context, ref: string): Promise<{ request: string; definition: Definition }> {
   const { config, notion, paths } = context
   if (!config.automations) throw new Error('the config has no "automations" data sources')
-  if (!config.owner) throw new Error('the config has no "owner"')
+  if (!config.assignee) throw new Error('the config has no "assignee"')
   if (!serveStatus(paths).running) throw new Error("ntncode serve isn't running, so nothing would start the run; start it with systemctl --user enable --now ntncode.service")
   const wanted = AutomationRef.parse(ref)
   const number = Number(wanted.split("-")[1])
@@ -259,7 +259,7 @@ export async function requestRun(context: Context, ref: string): Promise<{ reque
     row = unscheduled.row
   }
   if (row.id !== wanted) throw new Error(`no automation ${wanted} in Notion (${number} is ${row.id})`)
-  if (row.owners.length !== 1 || row.owners[0] !== config.owner) throw new Error(`${row.id}: Owner must be this installation's owner, ${config.owner}`)
+  if (row.assignees.length !== 1 || row.assignees[0] !== config.assignee) throw new Error(`${row.id}: Assignee must be this installation's assignee, ${config.assignee}`)
   const now = new Date()
   const definition = await buildDefinition(notion, paths, page, row, { now, since: now.toISOString() })
   if (definition.schedule) definition.schedule = formatSchedule(parseSchedule(definition.schedule))

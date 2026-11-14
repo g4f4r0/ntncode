@@ -23,7 +23,7 @@ function definition(paths: { projects: string }, extra: Partial<Definition> = {}
     page: "aut-page",
     url: "https://app.notion.com/p/aut12",
     title: "Acme daily audit",
-    owner: OWNER,
+    assignee: OWNER,
     agent: "Claude Code",
     model: "claude-opus-5-5",
     effort: "high",
@@ -95,7 +95,7 @@ function stubAgent(answer: { ok: boolean; reply?: string; error?: string }) {
   return { agents: { "Claude Code": agent, Codex: agent, OpenCode: agent } as Record<AgentName, Agent>, calls }
 }
 
-const config = (extra = {}) => ({ owner: OWNER, automations: { automations: "a", runs: RUNS, instructions: null }, ...extra })
+const config = (extra = {}) => ({ assignee: OWNER, automations: { automations: "a", runs: RUNS, instructions: null }, ...extra })
 
 test("a scheduled run records In progress, runs the agent with the wrapped prompt, then records the report as Completed", async () => {
   const paths = tempHome()

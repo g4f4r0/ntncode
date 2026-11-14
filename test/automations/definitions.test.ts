@@ -10,7 +10,7 @@ import { fakeNotion, tempHome } from "../helpers.ts"
 import { automationPage, BOT, OWNER, PROJECT, projectPage, type RowInput } from "./fixtures.ts"
 
 const SOURCE = "1e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
-const config: Config = { ...EMPTY_CONFIG, owner: OWNER, automations: { automations: SOURCE, runs: SOURCE, instructions: null } }
+const config: Config = { ...EMPTY_CONFIG, assignee: OWNER, automations: { automations: SOURCE, runs: SOURCE, instructions: null } }
 
 function setup() {
   const paths = tempHome()
@@ -41,21 +41,21 @@ function notionWith(rows: RowInput[], prompt = "Audit the store.") {
 
 const at = (iso: string) => new Date(iso)
 
-test("an enabled row the owner last edited becomes an automation file with everything a run needs", async () => {
+test("an enabled row the assignee last edited becomes an automation file with everything a run needs", async () => {
   const paths = setup()
   const { notion, calls } = notionWith([{ model: "claude-opus-5-5" }])
   const results = await syncAutomations(notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
   assert.deepEqual(results.map((result) => result.status), ["written"])
-  assert.deepEqual(calls.filters[0], { property: "Owner", people: { contains: OWNER } }, "only the owner's rows are read")
+  assert.deepEqual(calls.filters[0], { property: "Assignee", people: { contains: OWNER } }, "only the assignee's rows are read")
   const [definition] = readDefinitions(paths).definitions
   assert.equal(definition!.id, "AUT-12")
   assert.equal(definition!.directory, path.join(paths.projects, "acme"))
   assert.equal(definition!.schedule, "DTSTART;TZID=Europe/Madrid:20261115T080000\nRRULE:FREQ=DAILY")
   assert.deepEqual([definition!.agent, definition!.model, definition!.effort, definition!.timeZone, definition!.prompt], ["Claude Code", "claude-opus-5-5", "high", "Europe/Madrid", "Audit the store."])
-  assert.equal(definition!.since, "2026-11-14T07:59:59.999Z", "runs count from the owner's edit at 08:00, not from the sync")
+  assert.equal(definition!.since, "2026-11-14T07:59:59.999Z", "runs count from the assignee's edit at 08:00, not from the sync")
 })
 
-test("a run due between the owner's enable and the sync that reads it still fires; a schedule change never fires an old time", async () => {
+test("a run due between the assignee's enable and the sync that reads it still fires; a schedule change never fires an old time", async () => {
   const paths = setup()
   // Enabled at 08:59 for a one-off at 09:00; the sync only reads it at 09:00:05.
   await syncAutomations(notionWith([{ repeat: "Once", start: "2026-11-15T09:00:00.000Z", zone: "UTC", edited: "2026-11-15T08:59:00.000Z" }]).notion, paths, config, { now: at("2026-11-15T09:00:05Z") })
@@ -71,11 +71,11 @@ test("a run due between the owner's enable and the sync that reads it still fire
   assert.equal(dueOccurrence(changed as never, "2026-11-15T15:00:00.000Z", at("2026-11-16T14:06:00Z")), null)
 })
 
-test("a row last edited by anyone but the owner never becomes runnable, and an existing file keeps its old version", async () => {
+test("a row last edited by anyone but the assignee never becomes runnable, and an existing file keeps its old version", async () => {
   const paths = setup()
   const first = await syncAutomations(notionWith([{ editedBy: BOT }]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
   assert.equal(first[0]!.status, "skipped")
-  assert.match(first[0]!.detail, /not the owner; not scheduled/u)
+  assert.match(first[0]!.detail, /not the assignee; not scheduled/u)
   assert.equal(readDefinitions(paths).definitions.length, 0)
 
   await syncAutomations(notionWith([{}], "Old prompt.").notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
@@ -85,7 +85,7 @@ test("a row last edited by anyone but the owner never becomes runnable, and an e
   assert.equal(readDefinitions(paths).definitions[0]!.prompt, "Old prompt.")
 })
 
-test("disabling always takes effect, whoever did it; so does trashing or giving it another owner", async () => {
+test("disabling always takes effect, whoever did it; so does trashing or giving it another assignee", async () => {
   for (const change of [{ status: "Disabled" as const, editedBy: BOT }, { trash: true }, { owners: [BOT] }]) {
     const paths = setup()
     await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
@@ -132,14 +132,14 @@ test("a project without a Folder, or one missing on disk, an empty prompt and tw
   assert.equal(readDefinitions(paths).definitions[0]!.directory, path.join(paths.state, "workspace"))
 })
 
-test("a failed query changes nothing; no owner runs nothing; a dry run writes nothing", async () => {
+test("a failed query changes nothing; no assignee runs nothing; a dry run writes nothing", async () => {
   const paths = setup()
   await syncAutomations(notionWith([{}]).notion, paths, config)
   const down = fakeNotion({ queryDataSource: async () => Promise.reject(new Error("Notion unreachable (ECONNRESET)")) })
   const results = await syncAutomations(down, paths, config)
   assert.equal(results.at(-1)!.status, "failed")
   assert.equal(readDefinitions(paths).definitions.length, 1)
-  assert.match((await syncAutomations(down, paths, { ...config, owner: null }))[0]!.detail, /no "owner"/u)
+  assert.match((await syncAutomations(down, paths, { ...config, assignee: null }))[0]!.detail, /no "assignee"/u)
 
   const fresh = setup()
   const dry = await syncAutomations(notionWith([{}]).notion, fresh, config, { dryRun: true })

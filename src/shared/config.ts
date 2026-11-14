@@ -45,8 +45,8 @@ const HomePath = z.string().refine((value) => value.startsWith("/") || value.sta
 
 /** The config file. Every key is optional; an unknown key or a bad value is an error, never ignored. */
 export const ConfigFile = z.strictObject({
-  /** The Notion user this installation runs automations for. */
-  owner: NotionId.optional(),
+  /** The Notion user this installation runs automations for: rows whose Assignee is this person. */
+  assignee: NotionId.optional(),
   /** The projects folder, if not ~/projects. */
   projects: HomePath.optional(),
   /** The Notion Skills data source; set it to sync skills to ~/.agents/skills. */
@@ -66,7 +66,7 @@ export const ConfigFile = z.strictObject({
 })
 
 export interface Config {
-  owner: string | null
+  assignee: string | null
   projects: string | null
   skills: string | null
   automations: { automations: string; runs: string; instructions: string | null } | null
@@ -74,7 +74,7 @@ export interface Config {
   mcp: string[]
 }
 
-export const EMPTY_CONFIG: Config = { owner: null, projects: null, skills: null, automations: null, onFailure: null, mcp: ["notion"] }
+export const EMPTY_CONFIG: Config = { assignee: null, projects: null, skills: null, automations: null, onFailure: null, mcp: ["notion"] }
 
 /** Zod's issues as one line, each with the key that failed. */
 export function describeIssues(error: z.ZodError): string {
@@ -94,7 +94,7 @@ export function readConfig(file: string): Config {
   if (!parsed.success) throw new Error(`${file}: ${describeIssues(parsed.error)}`)
   const config = parsed.data
   return {
-    owner: config.owner ?? null,
+    assignee: config.assignee ?? null,
     projects: config.projects ?? null,
     skills: config.skills ?? null,
     automations: config.automations ? { ...config.automations, instructions: config.automations.instructions ?? null } : null,

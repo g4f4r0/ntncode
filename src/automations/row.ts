@@ -8,7 +8,7 @@ import { plainText } from "../shared/notion.ts"
 export const AUTOMATION_PROPERTIES = {
   ID: "unique_id",
   Title: "title",
-  Owner: "people",
+  Assignee: "people",
   Project: "relation",
   Status: "status",
   Agent: "select",
@@ -259,7 +259,7 @@ export interface Row {
   url: string
   title: string
   status: string | null
-  owners: string[]
+  assignees: string[]
   projects: string[]
   agent: AgentName
   model: string | null
@@ -276,7 +276,7 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
   const title = read.text("Title")
   if (!title) read.fail("Title", "is empty")
   const status = read.status("Status")
-  const owners = read.people("Owner")
+  const assignees = read.people("Assignee")
   const projects = read.relation("Project")
   if (projects.length > 1) read.fail("Project", "link one project at most")
   const agentName = read.select("Agent")
@@ -298,7 +298,7 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
       url: page.url ?? "",
       title,
       status,
-      owners,
+      assignees,
       projects,
       agent: agent.data,
       model,

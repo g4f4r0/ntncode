@@ -237,7 +237,7 @@ function help(): number {
     commands: COMMANDS,
     exitCodes: { 0: "ok", 1: "needs attention: a failed or skipped result, a doctor error, or a failed run", 2: "usage: bad arguments, no token, or an invalid config" },
     files: {
-      config: "~/.config/notion-code/config.json: { owner, projects, skills, automations: { automations, runs, instructions }, onFailure, mcp }",
+      config: "~/.config/notion-code/config.json: { assignee, projects, skills, automations: { automations, runs, instructions }, onFailure, mcp }",
       notionJson: '~/.agents/notion.json and ~/projects/<folder>/notion.json: { "instructions": "<page ID or link>" }',
       token: "NOTION_ACCESS_TOKEN, from the environment or ~/.config/secrets.env",
       state: "~/.local/state/notion-code: state.json, skills.json, scheduler.json, automations/, runs/, outbox/, serve.log, sync.log, backups/",

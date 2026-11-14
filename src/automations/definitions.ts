@@ -20,7 +20,7 @@ export const Definition = z.strictObject({
   page: z.string(),
   url: z.string(),
   title: z.string().min(1),
-  owner: z.string(),
+  assignee: z.string(),
   agent: AgentName,
   model: z.string().nullable(),
   effort: Effort.nullable(),
@@ -36,7 +36,7 @@ export const Definition = z.strictObject({
   /** When the sync last read the row; with `edited`, tells whether a same-minute edit could have been missed. */
   synced: z.string(),
   /**
-   * No occurrence at or before this ever fires: the minute before the owner's edit that made the row runnable, or that
+   * No occurrence at or before this ever fires: the minute before the assignee's edit that made the row runnable, or that
    * last changed its schedule. A run due between that edit and the sync that reads it still fires.
    */
   since: z.iso.datetime(),
@@ -100,7 +100,7 @@ export async function buildDefinition(notion: Notion, paths: Paths, page: Notion
     page: row.page,
     url: row.url,
     title: row.title,
-    owner: row.owners[0] ?? "",
+    assignee: row.assignees[0] ?? "",
     agent: row.agent,
     model: row.model,
     effort: row.effort,
@@ -116,15 +116,15 @@ export async function buildDefinition(notion: Notion, paths: Paths, page: Notion
 }
 
 /**
- * Enabled Notion rows → automation files. A row becomes runnable, or changes what it runs, only when its owner is
- * this installation's owner and the owner made its last edit; otherwise the previous file stays. Disabling always
+ * Enabled Notion rows → automation files. A row becomes runnable, or changes what it runs, only when its Assignee is
+ * this installation's assignee and the assignee made its last edit; otherwise the previous file stays. Disabling always
  * takes effect, whoever made it. Every Notion read finishes before anything is written.
  */
 export async function syncAutomations(notion: Notion, paths: Paths, config: Config, { dryRun = false, now = new Date() } = {}): Promise<Result[]> {
   const folder = definitionsFolder(paths)
   if (!config.automations) return []
-  if (!config.owner) return [{ status: "failed", path: folder, detail: 'the config has no "owner": no automation runs without one' }]
-  const owner = config.owner
+  if (!config.assignee) return [{ status: "failed", path: folder, detail: 'the config has no "assignee": no automation runs without one' }]
+  const assignee = config.assignee
   const results: Result[] = []
   const { definitions, problems } = readDefinitions(paths)
   results.push(...problems)
@@ -133,7 +133,7 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
   let pages: NotionPage[]
   let instructions: string | null = null
   try {
-    pages = await notion.queryDataSource(config.automations.automations, { filter: { property: "Owner", people: { contains: owner } } })
+    pages = await notion.queryDataSource(config.automations.automations, { filter: { property: "Assignee", people: { contains: assignee } } })
     if (config.automations.instructions) instructions = normalizeNotionMarkdown(await notion.getPageMarkdown(config.automations.instructions)).trim()
   } catch (error) {
     return [...results, { status: "failed", path: folder, detail: `${(error as Error).message}; every automation kept as it is` }]
@@ -157,8 +157,8 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
       results.push({ status: "failed", path: where, detail: `${label}: ${issues.join("; ")}${known ? "; the previous version stays scheduled" : "; not scheduled"}` })
       continue
     }
-    if (row.owners.length !== 1) {
-      results.push({ status: "failed", path: where, detail: `${label}: Owner must be exactly one person${known ? "; the previous version stays scheduled" : "; not scheduled"}` })
+    if (row.assignees.length !== 1) {
+      results.push({ status: "failed", path: where, detail: `${label}: Assignee must be exactly one person: two installations would race to run it${known ? "; the previous version stays scheduled" : "; not scheduled"}` })
       continue
     }
     if (known && known.id !== row.id) removals.set(known.id, `${label}: its ID changed to ${row.id}`)
@@ -167,16 +167,16 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
       results.push({ status: "unchanged", path: where, detail: `${label}: not edited since the last sync` })
       continue
     }
-    if (row.editedBy !== owner) {
+    if (row.editedBy !== assignee) {
       const who = row.editedBy ? `user ${row.editedBy}` : "an unknown user"
       results.push({
         status: "skipped",
         path: where,
-        detail: `${label}: last edited by ${who}, not the owner; ${known ? "the previous version stays scheduled" : "not scheduled"} until the owner edits it (setting Status counts)`,
+        detail: `${label}: last edited by ${who}, not the assignee; ${known ? "the previous version stays scheduled" : "not scheduled"} until the assignee edits it (setting Status counts)`,
       })
       continue
     }
-    // An edit that makes a row runnable, or changes when it runs, counts from the owner's edit, not from this sync, and
+    // An edit that makes a row runnable, or changes when it runs, counts from the assignee's edit, not from this sync, and
     // never fires a time before it.
     const editMinute = new Date(Math.min(now.getTime(), Date.parse(row.edited) || now.getTime()) - 1).toISOString()
     const since = known && known.schedule === row.schedule ? known.since : editMinute
@@ -187,7 +187,7 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
     }
   }
   for (const definition of definitions) {
-    if (!seen.has(definition.page)) removals.set(definition.id, `${definition.id} ${definition.title}: no longer an automation of this owner in Notion; no longer scheduled`)
+    if (!seen.has(definition.page)) removals.set(definition.id, `${definition.id} ${definition.title}: no longer assigned to this installation's assignee in Notion; no longer scheduled`)
   }
 
   for (const [id, detail] of removals) {

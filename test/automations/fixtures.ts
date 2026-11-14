@@ -48,7 +48,7 @@ export function automationPage(input: RowInput = {}): NotionPage {
     properties: {
       ID: { type: "unique_id", unique_id: { prefix: "AUT", number: n } },
       Title: { type: "title", title: [{ plain_text: input.title ?? "Acme daily audit" }] },
-      Owner: { type: "people", people: (input.owners ?? [OWNER]).map((id) => ({ object: "user", id })) },
+      Assignee: { type: "people", people: (input.owners ?? [OWNER]).map((id) => ({ object: "user", id })) },
       Project: { type: "relation", relation: input.project === null ? [] : [{ id: input.project ?? PROJECT }], has_more: false },
       Status: { type: "status", status: input.status === null ? null : { name: input.status ?? "Enabled" } },
       Agent: select(input.agent === undefined ? "Claude Code" : input.agent),
