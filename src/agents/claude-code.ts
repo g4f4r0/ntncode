@@ -57,7 +57,7 @@ const binary = (paths: Paths) => findBinary("claude", [path.join(paths.home, ".l
 export const claudeCode: Agent = {
   name: "Claude Code",
   binary,
-  modelError: (model) => (model && /\s/u.test(model) ? "a Claude Code model is one word, such as claude-opus-5-5 or opus" : null),
+  settingsError: (model) => (model && /\s/u.test(model) ? "Model: a Claude Code model is one word, such as claude-opus-5-5 or opus" : null),
 
   async run(paths, input) {
     const claude = binary(paths)

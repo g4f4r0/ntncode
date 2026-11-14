@@ -112,8 +112,8 @@ test("OpenCode runs with --auto and the model's variant as effort; the reply is 
   assert.equal(openCodeModel("claude-opus-5-5"), "anthropic/claude-opus-5-5", "the Model list's names work for OpenCode too")
   assert.equal(openCodeModel("gpt-6.1-sol"), "openai/gpt-6.1-sol")
   assert.equal(openCodeModel("xai/grok-5"), "xai/grok-5")
-  assert.match(openCode.modelError("grok-5")!, /provider\/model/u)
-  assert.equal(openCode.modelError("claude-opus-5-5"), null)
+  assert.match(openCode.settingsError("grok-5", null)!, /provider\/model/u)
+  assert.equal(openCode.settingsError("claude-opus-5-5", "high"), null)
 })
 
 test("each agent's MCP list is read, and a missing or signed-out server is an error with its fix", () => {

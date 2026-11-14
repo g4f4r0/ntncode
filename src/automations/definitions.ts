@@ -88,9 +88,8 @@ async function resolveProject(notion: Notion, paths: Paths, row: Row): Promise<{
 
 /** A row → its automation file's content, reading the project and the prompt. Throws with every problem at once. */
 export async function buildDefinition(notion: Notion, paths: Paths, page: NotionPage, row: Row, { now, since }: { now: Date; since: string }): Promise<Definition> {
-  const settings = AGENTS[row.agent].modelError(row.model)
-  if (settings) throw new Error(`Model: ${settings}`)
-  if (row.agent === "OpenCode" && row.effort && !row.model) throw new Error("Effort: OpenCode sets effort through the model, so set Model too")
+  const settings = AGENTS[row.agent].settingsError(row.model, row.effort)
+  if (settings) throw new Error(settings)
   const { project, directory } = await resolveProject(notion, paths, row)
   const prompt = normalizeNotionMarkdown(await notion.getPageMarkdown(page.id)).trim()
   if (!prompt) throw new Error("the page body, the prompt, is empty")

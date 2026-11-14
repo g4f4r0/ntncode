@@ -85,7 +85,7 @@ function stubAgent(answer: { ok: boolean; reply?: string; error?: string }) {
   const agent: Agent = {
     name: "Claude Code",
     binary: () => "/bin/true",
-    modelError: () => null,
+    settingsError: () => null,
     async run(_paths, input) {
       calls.push(input)
       return { ok: answer.ok, reply: answer.reply ?? "", session: "sess-1", resume: "claude --resume sess-1", error: answer.error ?? null, usage: answer.ok ? { input: 22_519, cached: 18_200, output: 412, costUsd: 0.0901 } : null }

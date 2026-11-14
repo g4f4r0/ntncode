@@ -58,14 +58,18 @@ const binary = (paths: Paths) => findBinary("opencode", [path.join(paths.home, "
 export const openCode: Agent = {
   name: "OpenCode",
   binary,
-  modelError: (model) => (model && !openCodeModel(model) ? "OpenCode needs provider/model, such as anthropic/claude-opus-5-5, for a model that isn't claude-* or gpt-*" : null),
+  settingsError(model, effort) {
+    if (model && !openCodeModel(model)) return "Model: OpenCode needs provider/model, such as anthropic/claude-opus-5-5, for a model that isn't claude-* or gpt-*"
+    // OpenCode sets effort as the model's variant, so it needs a model.
+    if (effort && !model) return "Effort: OpenCode sets effort through the model, so set Model too"
+    return null
+  },
 
   async run(paths, input) {
     const bin = binary(paths)
     if (!bin) return { ok: false, reply: "", session: null, resume: null, usage: null, error: "OpenCode (opencode) isn't installed" }
     // A private OpenCode (--standalone), because the background service ignores the caller's folder.
     const args = ["run", "--standalone", "--format", "json", "--auto", "--title", input.title]
-    // OpenCode sets effort as the model's variant, so it needs a model.
     const model = input.model ? openCodeModel(input.model) : null
     if (model) args.push("-m", input.effort ? `${model}#${input.effort}` : model)
     const result = await runCommand(bin, args, { cwd: input.directory, input: input.prompt, env: input.env, onStart: input.onStart })

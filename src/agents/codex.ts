@@ -60,7 +60,7 @@ const binary = (paths: Paths) => findBinary("codex", [path.join(paths.home, ".lo
 export const codex: Agent = {
   name: "Codex",
   binary,
-  modelError: (model) => (model && /\s/u.test(model) ? "a Codex model is one word, such as gpt-6.1-sol" : null),
+  settingsError: (model) => (model && /\s/u.test(model) ? "Model: a Codex model is one word, such as gpt-6.1-sol" : null),
 
   async run(paths, input) {
     const bin = binary(paths)
