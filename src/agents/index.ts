@@ -6,7 +6,7 @@ import { codex, codexLinks } from "./codex.ts"
 import { ensureLinks, linkChecks } from "./links.ts"
 import { openCode, openCodeLinks } from "./opencode.ts"
 
-export { AgentName, Effort, type Agent, type AgentRunInput, type AgentRunOutput } from "./agent.ts"
+export { AgentName, Effort, modelId, type Agent, type AgentRunInput, type AgentRunOutput } from "./agent.ts"
 
 /** Every agent, by the name the Notion Agent property uses. */
 export const AGENTS: Record<AgentName, Agent> = { "Claude Code": claudeCode, Codex: codex, OpenCode: openCode }

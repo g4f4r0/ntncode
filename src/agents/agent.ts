@@ -53,6 +53,17 @@ export interface Agent {
   envNeeds(paths: Paths): { names: string[]; why: string }[]
 }
 
+/**
+ * A Model property option as the agents name it: "Opus 5.5" is claude-opus-5-5, "GPT-6.1 Sol" is gpt-6.1-sol.
+ * Anything else, such as an ID written out, passes through as it is.
+ */
+export function modelId(name: string): string {
+  const claude = name.match(/^(Opus|Sonnet|Haiku|Fable) (\d+)\.(\d+)$/u)
+  if (claude) return `claude-${claude[1]!.toLowerCase()}-${claude[2]}-${claude[3]}`
+  if (/^GPT-\S+( \S+)*$/u.test(name)) return name.toLowerCase().replace(/\s+/gu, "-")
+  return name
+}
+
 /** The first executable of this name on PATH or in the extra folders. */
 export function findBinary(name: string, extra: string[]): string | null {
   for (const folder of [...(process.env.PATH ?? "").split(":"), ...extra]) {

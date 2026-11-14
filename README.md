@@ -85,7 +85,7 @@ which only Notion Code writes.
 | Project | Relation to a Projects database with a `Folder` text property | The agent runs in `~/projects/<Folder>`; empty runs it in the state's `workspace` folder |
 | Status | Status: `Disabled`, `Enabled` | Only `Enabled` runs |
 | Agent | Select: `Claude Code`, `Codex`, `OpenCode` | The agent that runs it |
-| Model, Effort | Select of model names; select `Low` to `Max` | Optional; empty uses the agent's default. OpenCode gets `anthropic/` or `openai/` added for `claude-*` and `gpt-*` names |
+| Model, Effort | Select, such as `Opus 5.5` or `GPT-6.1 Sol`; select `Low` to `Max` | Optional; empty uses the agent's default. `Opus 5.5` runs as `claude-opus-5-5` and `GPT-6.1 Sol` as `gpt-6.1-sol`; any other option is passed as the model ID. OpenCode gets `anthropic/` or `openai/` added |
 | Start, Time zone, Repeat, Every, Days, Days of month, Months, Hours, Minutes, Occurrence, Limit, Until | Date; select; select; number; multi-selects; number; date | The schedule, one property per part of an iCalendar recurrence rule |
 | Runs | Relation to Runs | Every run, newest last |
 | Page body | | The prompt |

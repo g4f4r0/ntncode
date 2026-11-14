@@ -1,5 +1,5 @@
 import { z } from "zod"
-import { AgentName, Effort } from "../agents/index.ts"
+import { AgentName, Effort, modelId } from "../agents/index.ts"
 import { formatSchedule, parseSchedule } from "../scheduler/rrule.ts"
 import type { NotionPage, NotionProperty } from "../shared/notion.ts"
 import { plainText } from "../shared/notion.ts"
@@ -282,7 +282,9 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
   const agentName = read.select("Agent")
   const agent = AgentName.safeParse(agentName)
   if (!agent.success) read.fail("Agent", agentName ? `unknown agent ${agentName}` : "is required: Claude Code, Codex or OpenCode")
-  const model = read.select("Model")
+  // The option's display name, such as "Opus 5.5", becomes the ID the agent takes.
+  const modelName = read.select("Model")
+  const model = modelName ? modelId(modelName) : null
   const effortName = read.select("Effort")
   const effort = effortName === null ? null : Effort.safeParse(effortName.toLowerCase())
   if (effort && !effort.success) read.fail("Effort", `unknown option ${effortName}`)

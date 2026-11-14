@@ -91,3 +91,13 @@ test("a row reads its agent, model and effort", () => {
   const { row } = readRow(automationPage({ model: "claude-opus-5-5", effort: "High" }))
   assert.deepEqual([row!.id, row!.agent, row!.model, row!.effort, row!.status], ["AUT-12", "Claude Code", "claude-opus-5-5", "high", "Enabled"])
 })
+
+test("a Model option's display name becomes the agent's model ID", () => {
+  const model = (name: string) => readRow(automationPage({ model: name })).row!.model
+  assert.equal(model("Opus 5.5"), "claude-opus-5-5")
+  assert.equal(model("Sonnet 5.5"), "claude-sonnet-5-5")
+  assert.equal(model("Fable 5.2"), "claude-fable-5-2")
+  assert.equal(model("GPT-6.1 Sol"), "gpt-6.1-sol")
+  assert.equal(model("GPT-6.1 Terra"), "gpt-6.1-terra")
+  assert.equal(model("claude-opus-5-5"), "claude-opus-5-5", "an ID passes through")
+})
