@@ -14,7 +14,7 @@ function stub(name: string, output: string, exit = 0) {
   const bin = path.join(paths.home, "bin")
   fs.mkdirSync(bin)
   const record = path.join(paths.home, "record")
-  fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nprintf '%s\\n' "$@" > ${record}.argv\npwd > ${record}.cwd\ncat > ${record}.stdin\ncat <<'OUT'\n${output}\nOUT\nexit ${exit}\n`, { mode: 0o755 })
+  fs.writeFileSync(path.join(bin, name), `#!/bin/sh\nprintf '%s\\n' "$@" > ${record}.argv\npwd > ${record}.cwd\nenv > ${record}.env\ncat > ${record}.stdin\ncat <<'OUT'\n${output}\nOUT\nexit ${exit}\n`, { mode: 0o755 })
   const saved = process.env.PATH
   process.env.PATH = `${bin}:${saved}`
   const directory = path.join(paths.projects, "acme")
@@ -24,6 +24,7 @@ function stub(name: string, output: string, exit = 0) {
     directory,
     argv: () => fs.readFileSync(`${record}.argv`, "utf8").trim().split("\n"),
     stdin: () => fs.readFileSync(`${record}.stdin`, "utf8"),
+    env: () => fs.readFileSync(`${record}.env`, "utf8"),
     cwd: () => fs.realpathSync(fs.readFileSync(`${record}.cwd`, "utf8").trim()),
     restore: () => (process.env.PATH = saved),
   }
@@ -164,4 +165,19 @@ test("each agent names the variables it needs to sign in unattended, from its ow
   fs.mkdirSync(path.join(paths.home, ".config/opencode"), { recursive: true })
   fs.writeFileSync(path.join(paths.home, ".config/opencode/opencode.jsonc"), '{\n  // {env:IN_A_COMMENT}\n  "headers": { "Authorization": "Bearer {env:EXECUTOR_TOKEN}" }\n}\n')
   assert.deepEqual(openCode.envNeeds(paths).map((need) => need.names), [["EXECUTOR_TOKEN"]])
+})
+
+test("an environment value of undefined is removed from what the agent gets", async () => {
+  const fake = stub("claude", '{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s"}')
+  const saved = process.env.NOTION_ACCESS_TOKEN
+  process.env.NOTION_ACCESS_TOKEN = "ntn_should_not_leak"
+  try {
+    await claudeCode.run(fake.paths, { ...input(fake.directory), env: { NOTION_ACCESS_TOKEN: undefined, NTNCODE_RUN: "RUN-1" } })
+    assert.doesNotMatch(fake.env(), /NOTION_ACCESS_TOKEN/u)
+    assert.match(fake.env(), /NTNCODE_RUN=RUN-1/u)
+  } finally {
+    if (saved === undefined) delete process.env.NOTION_ACCESS_TOKEN
+    else process.env.NOTION_ACCESS_TOKEN = saved
+    fake.restore()
+  }
 })

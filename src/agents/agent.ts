@@ -20,7 +20,8 @@ export interface AgentRunInput {
   effort: Effort | null
   /** The session's display name, where the agent has one. */
   title: string
-  env?: Record<string, string>
+  /** Added to, or with undefined removed from, the scheduler's environment. */
+  env?: Record<string, string | undefined>
   onStart?: (pid: number) => void
 }
 

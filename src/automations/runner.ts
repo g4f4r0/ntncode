@@ -268,6 +268,9 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
       effort: definition.effort,
       title: `${definition.id} ${definition.title}`,
       env: {
+        // The agent reaches Notion through its own tools. Notion Code's token stays out of its environment: Notion
+        // credits page edits made with it to the token's owner, so an agent holding it could pass the assignee check.
+        NOTION_ACCESS_TOKEN: undefined,
         NTNCODE_AUTOMATION: definition.id,
         NTNCODE_AUTOMATION_TITLE: definition.title,
         NTNCODE_AUTOMATION_URL: definition.url,

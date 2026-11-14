@@ -110,8 +110,10 @@ matches python-dateutil on every tested case.
 
 What makes an automation run:
 
-1. Its Assignee is this installation's `assignee`, and the assignee made the row's last edit. An edit made through the
-   API or an agent shows as the token's bot, so an agent's own change never runs until the assignee touches the row. Setting
+1. Its Assignee is this installation's `assignee`, and the assignee made the row's last edit. Property edits made
+   through the API show as the token's bot, so they never count. Notion credits a page body edit made through its
+   markdown API to the token's owner, though, so the check can't tell those from the assignee's own; that's why agent
+   runs never get Notion Code's token. Setting
    `Disabled` always takes effect, whoever does it.
 2. Each accepted row becomes an automation file in the state folder, and the scheduler reads those files, not Notion.
 3. A scheduled run first looks for its Title in Runs, so the same scheduled minute never runs twice, even if the state
