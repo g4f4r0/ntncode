@@ -1,0 +1,12 @@
+[Unit]
+Description=Notion Code: sync Notion to the files every agent reads
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=PATH=%h/.bun/bin:%h/.local/node/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-%h/.config/secrets.env
+ExecStart=%h/projects/g4f4r0/notion-code/bin/ntncode sync
+TimeoutStartSec=300
+Nice=10

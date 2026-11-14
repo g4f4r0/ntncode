@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Runs Notion Code with Bun, which runs the TypeScript directly; no build step.
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+BUN="$(command -v bun || ls "$HOME/.bun/bin/bun" "$HOME/.local/node/bin/bun" 2>/dev/null | head -1)"
+[ -n "$BUN" ] || { echo "ntncode: Bun not found; install it from https://bun.sh" >&2; exit 127; }
+exec "$BUN" "$HERE/src/cli.ts" "$@"

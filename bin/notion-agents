@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Runs the CLI with Node's built-in TypeScript support; no build step, no dependencies.
-set -euo pipefail
-HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-NODE="$(command -v node || echo "$HOME/.local/node/bin/node")"
-exec "$NODE" --disable-warning=ExperimentalWarning "$HERE/src/cli.ts" "$@"

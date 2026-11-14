@@ -3,15 +3,16 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
-import type { Notion, NotionPage } from "../src/notion.ts"
-import { ensureLinks, HEADER_PREFIX, parsePageId, syncInstructions, type Paths } from "../src/sync.ts"
+import type { Paths } from "../../src/shared/config.ts"
+import type { Notion, NotionPage } from "../../src/shared/notion.ts"
+import { HEADER_PREFIX, parsePageId, syncInstructions } from "../../src/instructions/sync.ts"
 
 const PAGE = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 const GLOBAL = "5f6e7d8c-9b0a-4f1e-8d2c-3b4a5f6e7d8c"
 
 function setup() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "notion-agents-"))
-  const paths: Paths = { home, agents: path.join(home, ".agents"), projects: path.join(home, "projects"), state: path.join(home, "state") }
+  const paths: Paths = { home, agents: path.join(home, ".agents"), projects: path.join(home, "projects"), state: path.join(home, "state"), config: path.join(home, "config.json"), secrets: path.join(home, "secrets.env") }
   fs.mkdirSync(paths.agents, { recursive: true })
   fs.mkdirSync(path.join(paths.projects, "acme"), { recursive: true })
   return { home, paths }
@@ -149,20 +150,23 @@ test("a dry run writes nothing", async () => {
   assert.equal(fs.existsSync(path.join(paths.state, "state.json")), false)
 })
 
-test("makes missing links, keeps its own, and leaves anything else alone", () => {
-  const { home, paths } = setup()
-  fs.writeFileSync(path.join(paths.agents, "AGENTS.md"), "x")
-  fs.mkdirSync(path.join(paths.agents, "skills"))
-  fs.mkdirSync(path.join(home, ".codex"))
-  fs.writeFileSync(path.join(home, ".codex/AGENTS.md"), "mine")
+test("a file written in an older format is written again, though its page wasn't edited", async () => {
+  const { paths } = setup()
+  json(path.join(paths.projects, "acme/notion.json"), { instructions: PAGE })
+  const { notion, calls } = fakeNotion({ [PAGE]: { title: "Acme", markdown: "rules" } })
+  await syncInstructions(notion, paths, { now: later })
+  const statePath = path.join(paths.state, "state.json")
+  const state = JSON.parse(fs.readFileSync(statePath, "utf8"))
+  const file = path.join(paths.projects, "acme/AGENTS.md")
+  // As an older version would have left it: no format, and an older header.
+  for (const entry of Object.values(state.files) as { format?: number; hash: string }[]) delete entry.format
+  fs.writeFileSync(statePath, JSON.stringify(state))
 
-  const first = ensureLinks(paths)
-  assert.deepEqual(first.map((result) => [result.status, path.relative(home, result.path)]), [
-    ["linked", ".claude/CLAUDE.md"],
-    ["skipped", ".codex/AGENTS.md"],
-    ["linked", ".claude/skills"],
-  ])
-  assert.equal(fs.readlinkSync(path.join(home, ".claude/CLAUDE.md")), "../.agents/AGENTS.md")
-  assert.equal(fs.readFileSync(path.join(home, ".codex/AGENTS.md"), "utf8"), "mine")
-  assert.deepEqual(ensureLinks(paths).map((result) => result.status), ["skipped"])
+  const results = await syncInstructions(notion, paths, { now: later })
+  assert.equal(results[0]!.status, "unchanged", "same content, so nothing to write")
+  assert.equal(calls.markdown, 2, "but the page was read again rather than trusted")
+  const again = await syncInstructions(notion, paths, { now: later })
+  assert.equal(again[0]!.status, "unchanged")
+  assert.equal(calls.markdown, 2, "and once recorded in the current format, it is trusted again")
+  assert.ok(fs.readFileSync(file, "utf8").includes("Notion Code replaces this file"))
 })

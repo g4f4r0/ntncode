@@ -1,5 +1,5 @@
 [Unit]
-Description=notion-agents: sync Notion every 10 minutes
+Description=Notion Code: sync every 10 minutes
 
 [Timer]
 OnBootSec=2min

@@ -1,37 +1,13 @@
 import fs from "node:fs"
 import path from "node:path"
-import { hash, lstat, readJson, writeAtomic } from "./files.ts"
-import { normalizeNotionMarkdown } from "./markdown.ts"
-import { getTitle, type Notion } from "./notion.ts"
+import type { Paths } from "../shared/config.ts"
+import { hash, lstat, readJson, writeAtomic } from "../shared/files.ts"
+import { normalizeNotionMarkdown } from "../shared/markdown.ts"
+import type { Result } from "../shared/module.ts"
+import { getTitle, type Notion } from "../shared/notion.ts"
 
 /** Every file this tool writes starts with this; a file without it is never overwritten. */
 export const HEADER_PREFIX = "<!-- Synced from Notion"
-
-export interface Paths {
-  home: string
-  /** ~/.agents: the global notion.json, AGENTS.md and skills. */
-  agents: string
-  /** ~/projects: each direct child folder may hold a notion.json. */
-  projects: string
-  state: string
-}
-
-export function defaultPaths(home: string): Paths {
-  return {
-    home,
-    agents: path.join(home, ".agents"),
-    projects: path.join(home, "projects"),
-    state: path.join(process.env.XDG_STATE_HOME || path.join(home, ".local/state"), "notion-agents"),
-  }
-}
-
-export type Status = "written" | "unchanged" | "skipped" | "failed" | "linked" | "would write" | "would link"
-
-export interface Result {
-  status: Status
-  path: string
-  detail: string
-}
 
 interface FileState {
   page: string
@@ -40,7 +16,15 @@ interface FileState {
   /** When the file was last checked against Notion. */
   synced: string
   hash: string
+  /** The FORMAT the file was written in. */
+  format?: number
 }
+
+/**
+ * How files are written: the header and the markdown conversion. Bump it whenever either changes, so every file is
+ * written again on the next sync even though its page wasn't edited.
+ */
+export const FORMAT = 2
 
 /** Notion rounds last_edited_time down to the minute; trust it only when the last sync ran well after that minute. */
 const SETTLED_MS = 120_000
@@ -116,7 +100,7 @@ export function findMappings(paths: Paths): { mappings: Mapping[]; problems: Res
 
 function header(title: string, url: string | undefined): string {
   const name = title ? `"${title.replaceAll("--", "-")}"` : "a page"
-  return `${HEADER_PREFIX}: ${name}${url ? ` (${url})` : ""}. Edit it in Notion; notion-agents replaces this file on every sync. -->`
+  return `${HEADER_PREFIX}: ${name}${url ? ` (${url})` : ""}. Edit it in Notion; Notion Code replaces this file on every sync. -->`
 }
 
 interface Planned {
@@ -159,7 +143,7 @@ export async function syncInstructions(notion: Notion, paths: Paths, { dryRun = 
       const known = state.files[target]
       const currentHash = current === null ? null : hash(current)
       const settled = !!known && Date.parse(known.synced) - Date.parse(edited) > SETTLED_MS
-      if (known && known.page === mapping.page && edited && known.edited === edited && known.hash === currentHash && settled) {
+      if (known && known.page === mapping.page && known.format === FORMAT && edited && known.edited === edited && known.hash === currentHash && settled) {
         results.push({ status: "unchanged", path: target, detail: `Notion "${getTitle(page)}" not edited since the last sync` })
         continue
       }
@@ -194,7 +178,7 @@ export async function syncInstructions(notion: Notion, paths: Paths, { dryRun = 
       writeAtomic(target, content)
       results.push({ status: "written", path: target, detail })
     }
-    state.files[target] = { page: mapping.page, edited, synced: now.toISOString(), hash: hash(content) }
+    state.files[target] = { page: mapping.page, edited, synced: now.toISOString(), hash: hash(content), format: FORMAT }
   }
 
   if (!dryRun) {
@@ -202,28 +186,4 @@ export async function syncInstructions(notion: Notion, paths: Paths, { dryRun = 
     writeAtomic(statePath, `${JSON.stringify(state, null, 2)}\n`)
   }
   return results
-}
-
-/** The harness paths that point into ~/.agents, so there is one copy of everything. */
-export function linksFor(paths: Paths): { link: string; target: string }[] {
-  const agentsFile = path.join(paths.agents, "AGENTS.md")
-  return [
-    { link: path.join(paths.home, ".claude/CLAUDE.md"), target: agentsFile },
-    { link: path.join(paths.home, ".codex/AGENTS.md"), target: agentsFile },
-    { link: path.join(paths.home, ".claude/skills"), target: path.join(paths.agents, "skills") },
-  ]
-}
-
-/** Creates each missing link (relative, as `../.agents/...`). Anything else already at a link's path is left alone. */
-export function ensureLinks(paths: Paths, { dryRun = false } = {}): Result[] {
-  return linksFor(paths).flatMap(({ link, target }): Result[] => {
-    const stats = lstat(link)
-    if (stats?.isSymbolicLink() && path.resolve(path.dirname(link), fs.readlinkSync(link)) === target) return []
-    if (stats) return [{ status: "skipped", path: link, detail: `something else is there; left it alone (expected a link to ${target})` }]
-    if (!lstat(target)) return [{ status: "skipped", path: link, detail: `${target} does not exist yet; no link made` }]
-    if (dryRun) return [{ status: "would link", path: link, detail: `→ ${target}` }]
-    fs.mkdirSync(path.dirname(link), { recursive: true })
-    fs.symlinkSync(path.relative(path.dirname(link), target), link)
-    return [{ status: "linked", path: link, detail: `→ ${target}` }]
-  })
 }
