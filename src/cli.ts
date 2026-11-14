@@ -4,7 +4,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { parseArgs } from "node:util"
 import { z } from "zod"
-import { ArtifactError, openBucket, publish, remove } from "./artifacts/publish.ts"
+import { ArtifactError, list, openBucket, publish, remove } from "./artifacts/publish.ts"
 import { readDefinitions } from "./automations/definitions.ts"
 import { requestRun, resultPath, RunResult } from "./automations/index.ts"
 import { alert as sendAlert } from "./automations/runner.ts"
@@ -46,13 +46,18 @@ const COMMANDS = {
     prints: "{ ok, command, automation, run, result }",
   },
   "artifact publish": {
-    usage: "ntncode artifact publish <file|folder> [--title <text>] [--project <folder>] [--task <Notion task link>]",
-    does: "Publishes a file, or a folder with an index.html as a page, to the public artifacts bucket, at a link that never expires. --project files it under a folder of the projects folder. Anyone with the link can open it: never publish secrets or private data.",
-    prints: "{ ok, command, url, title, project, task, automation, run, created, entry, type, bytes, files }",
+    usage: "ntncode artifact publish <file|folder> [--title <text>] [--project <folder> [--task <TSK-n>]]",
+    does: "Publishes a file, or a folder with an index.html as a page, to the public artifacts bucket, at a link that never expires. A task's files go under <project>/<task>/, a project's other files under <project>/<YYYY-MM>/, everything else under <YYYY-MM>/. --title names it, in kebab case; anyone with the link can open it, so never publish secrets or private data.",
+    prints: "{ ok, command, url, project, task, name, type, bytes, files, created }",
+  },
+  "artifact list": {
+    usage: "ntncode artifact list [--project <folder> [--task <TSK-n>]] [--search <words>] [--limit <n>]",
+    does: "Finds published artifacts, newest first: a project's or a task's, and those whose name, project or task has every word of --search. 50 by default.",
+    prints: "{ ok, command, total, artifacts: [{ url, project, task, name, type, bytes, files, created }] }",
   },
   "artifact delete": {
     usage: "ntncode artifact delete <url>",
-    does: "Deletes everything one publish stored, by its link. Refuses anything else in the bucket.",
+    does: "Deletes one artifact by its link: a file, or every file of a page. Refuses anything else in the bucket.",
     prints: "{ ok, command, url, deleted }",
   },
   status: {
@@ -235,13 +240,20 @@ async function artifact(args: string[]): Promise<number> {
       print({ ok: true, command, ...published })
       return EXIT.ok
     }
+    if (action === "list") {
+      const { values } = parseArgs({ args: rest, options: { project: { type: "string" }, task: { type: "string" }, search: { type: "string" }, limit: { type: "string" } }, strict: true, allowPositionals: false })
+      const limit = z.coerce.number().int().positive().max(1_000).optional().parse(values.limit)
+      const found = await list({ project: values.project, task: values.task, search: values.search, limit }, { config: settings, bucket: openBucket(paths, settings) })
+      print({ ok: true, command, ...found })
+      return EXIT.ok
+    }
     if (action === "delete") {
       const { positionals } = parseArgs({ args: rest, options: {}, strict: true, allowPositionals: true })
       if (positionals.length !== 1) throw new UsageError("give exactly one link, such as ntncode artifact delete https://…/index.html")
       print({ ok: true, command, ...(await remove(positionals[0]!, { config: settings, bucket: openBucket(paths, settings) })) })
       return EXIT.ok
     }
-    throw new UsageError("give publish or delete, such as ntncode artifact publish ./report.png")
+    throw new UsageError("give publish, list or delete, such as ntncode artifact publish ./report.png")
   } catch (error) {
     if (!(error instanceof ArtifactError)) throw error
     return fail(command, error.usage ? new UsageError(error.message) : error, error.fix)

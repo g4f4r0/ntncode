@@ -16,7 +16,7 @@ Notion Code is an independent open-source project. It isn't made by or affiliate
 4. Automations: it runs the rows of a Notion Automations database on their schedules, on the agent each row names, and
    records every run in Notion.
 5. Artifacts: `ntncode artifact publish` puts a file or a small web page in a public bucket and returns a link that
-   never expires, for a Notion comment, a pull request or a client message.
+   never expires, for a Notion comment, a pull request or a client message. `ntncode artifact list` finds them again.
 
 `ntncode serve` does all of it: every sync every 10 minutes, and every automation on its schedule. The syncs only read
 from Notion. Only the automations runner writes to Notion, and only to its Runs.
@@ -136,27 +136,37 @@ is retried every tick.
 
 ## How artifacts work
 
-Any agent with a shell publishes the same way:
+Any agent with a shell publishes, finds and deletes artifacts the same way:
 
 ```sh
-ntncode artifact publish ./screenshot.png --title "Checkout, after" --project acme --task <Notion task link>
+ntncode artifact publish ./screenshot.png --title "Checkout after redesign" --project acme --task TSK-123
 ntncode artifact publish ./report        # a folder with an index.html is a page
+ntncode artifact list --project acme --search checkout
+ntncode artifact delete <url>
 ```
 
-It prints the link as `url`, with what it stored. A file keeps its name and its type, so a browser shows it. A folder
-needs an `index.html` at its top, and the link opens it. Every flag is optional. `--project` must be a folder under the
-projects folder; without it, the file goes under `shared/`. Inside an automation run, the automation and the run are
-recorded too.
+`publish` prints the link as `url`. The link never expires, and a browser shows the file, because it keeps its type. A
+folder needs an `index.html` at its top, and the link opens it. Every flag is optional, but `--task` needs
+`--project`. `--project` must be a folder under the projects folder, and `--task` is the Notion task's ID.
 
-Each publish gets its own folder in the bucket, `<project or shared>/<YYYY-MM>/<16 random hex>/`, with a
-`.artifact.json` holding the title, project, task, automation, run, time and files. The random part keeps links
-unguessable. The bucket itself is the index: nothing is written to Notion.
+The bucket is the index, and nothing is written to Notion. Where a file sits says what it belongs to:
+
+| Flags | Where it goes |
+| --- | --- |
+| `--project acme --task TSK-123` | `acme/tsk-123/checkout-after-redesign-7f3a9c.png` |
+| `--project acme` | `acme/2026-11/checkout-after-redesign-7f3a9c.png` |
+| none | `2026-11/checkout-after-redesign-7f3a9c.png` |
+
+The name is `--title`, or the file's own name, in kebab case. A page gets a folder of that name. The random ending
+keeps links unguessable and stops one publish from replacing another; to change a page, publish it again and use the
+new link. `list` reads only the folder a project or task names, and `--search` matches words in the name, so a
+descriptive title is what makes an artifact easy to find later.
 
 The bucket is Cloudflare R2, or another S3-compatible store that serves its objects publicly and accepts the signing
-region `auto`; AWS S3 doesn't. Anyone with a link can
-open it, so never publish secrets or private data. To protect a folder, publishing refuses dot-files, such as `.env`,
-and symbolic links, and stops at 100 MiB. `ntncode artifact delete <url>` removes everything one publish stored, and
-refuses anything else in the bucket. A page can't be changed in place: publish it again and use the new link.
+region `auto`; AWS S3 doesn't. Anyone with a link can open it, so never publish secrets or private data. To protect a
+folder, `publish` refuses dot-files, such as `.env`, and symbolic links, and stops at 100 MiB. A publish that fails
+partway removes what it uploaded. `delete` removes one artifact, every file of a page, and refuses anything outside
+this layout.
 
 ## Install
 
@@ -238,8 +248,9 @@ Every command prints one JSON document on stdout; `ntncode help` describes them 
 | `ntncode serve` | The scheduler, run by `ntncode.service`. One JSON line per event, also in `serve.log` |
 | `ntncode run AUT-12 [--wait]` | Starts one run now, read fresh from Notion, even while the row is `Disabled`, for a rehearsal. Needs the scheduler running |
 | `ntncode alert "<message>"` | From inside a run: asks a person for attention through `onFailure` |
-| `ntncode artifact publish <file\|folder> [--title] [--project] [--task]` | Publishes a file, or a folder as a page, and prints its public link |
-| `ntncode artifact delete <url>` | Deletes what one publish stored |
+| `ntncode artifact publish <file\|folder> [--title] [--project [--task]]` | Publishes a file, or a folder as a page, and prints its public link |
+| `ntncode artifact list [--project [--task]] [--search] [--limit]` | Finds published artifacts, newest first |
+| `ntncode artifact delete <url>` | Deletes one artifact |
 | `ntncode status` | The scheduler, the runs in progress, and each automation's last and next runs, from local files only |
 | `ntncode help` | The commands, the exit codes and the files, as JSON |
 

@@ -41,17 +41,6 @@ export function dashed(value: string): string {
   return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`
 }
 
-/** A Notion page ID from an ID or a link, in its dashed form; null when there is none. */
-export function parsePageId(value: unknown): string | null {
-  if (typeof value !== "string") return null
-  // A link's ?v= is a view and #… a block: only the path names the page. An ID must stand alone, so a title slug
-  // ending in a hex letter ("Acme-<id>") does not run into it.
-  const text = value.trim().toLowerCase().split(/[?#]/u)[0]!
-  const matches = text.match(/(?<![0-9a-f])(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![0-9a-f])/gu)
-  const id = matches?.at(-1)?.replaceAll("-", "")
-  return id ? `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}` : null
-}
-
 const HttpUrl = z.url({ protocol: /^https?$/u, error: "must be an http(s) URL" }).transform((value) => value.replace(/\/+$/u, ""))
 
 const HomePath = z.string().refine((value) => value.startsWith("/") || value.startsWith("~/"), "must be an absolute path or start with ~/")
