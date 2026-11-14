@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { z } from "zod"
 
 /** Where everything lives. Tests pass their own. */
 export interface Paths {
@@ -28,43 +29,89 @@ export function defaultPaths(home = os.homedir()): Paths {
   }
 }
 
-/** The installation's settings: what differs between one install and another. */
-export interface Config {
-  /** The Notion user this installation runs automations for. */
-  owner: string | null
-  /** The projects folder, if not ~/projects. An absolute path, or one starting with `~/`. */
-  projects: string | null
+/** A Notion ID, with or without dashes, returned in its dashed lowercase form. */
+export const NotionId = z
+  .string()
+  .regex(/^[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}$/iu, "must be a Notion ID (32 hex digits, dashes optional)")
+  .transform(dashed)
+
+/** A Notion ID in its dashed lowercase form. */
+export function dashed(value: string): string {
+  const id = value.replaceAll("-", "").toLowerCase()
+  return `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}`
 }
 
-const KEYS = ["owner", "projects"] as const
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+const HomePath = z.string().refine((value) => value.startsWith("/") || value.startsWith("~/"), "must be an absolute path or start with ~/")
 
-/** Reads the config file. A missing file is the default; an unknown key or a bad value is an error, never ignored. */
+/** The config file. Every key is optional; an unknown key or a bad value is an error, never ignored. */
+export const ConfigFile = z.strictObject({
+  /** The Notion user this installation runs automations for. */
+  owner: NotionId.optional(),
+  /** The projects folder, if not ~/projects. */
+  projects: HomePath.optional(),
+  /** The Notion Skills data source; set it to sync skills to ~/.agents/skills. */
+  skills: NotionId.optional(),
+  /** The Notion Automations database's two data sources, and the instructions page every run gets. */
+  automations: z
+    .strictObject({
+      automations: NotionId,
+      runs: NotionId,
+      instructions: NotionId.optional(),
+    })
+    .optional(),
+  /** A shell command run after a run fails, with the details on stdin and in AUTOMATION_* variables. */
+  onFailure: z.string().min(1).optional(),
+  /** The MCP servers every installed agent must have, signed in; `doctor` checks each. Default: notion. */
+  mcp: z.array(z.string().regex(/^[\w.-]+$/u, "must be an MCP server name")).optional(),
+})
+
+export interface Config {
+  owner: string | null
+  projects: string | null
+  skills: string | null
+  automations: { automations: string; runs: string; instructions: string | null } | null
+  onFailure: string | null
+  mcp: string[]
+}
+
+export const EMPTY_CONFIG: Config = { owner: null, projects: null, skills: null, automations: null, onFailure: null, mcp: ["notion"] }
+
+/** Zod's issues as one line, each with the key that failed. */
+export function describeIssues(error: z.ZodError): string {
+  return error.issues.map((issue) => `${issue.path.length ? issue.path.join(".") : "(root)"}: ${issue.message}`).join("; ")
+}
+
+/** Reads and validates the config file. A missing file is the default. */
 export function readConfig(file: string): Config {
-  if (!fs.existsSync(file)) return { owner: null, projects: null }
+  if (!fs.existsSync(file)) return EMPTY_CONFIG
   let value: unknown
   try {
     value = JSON.parse(fs.readFileSync(file, "utf8"))
   } catch (error) {
     throw new Error(`${file} is not valid JSON: ${(error as Error).message}`)
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error(`${file} must be a JSON object`)
-  const unknown = Object.keys(value).filter((key) => !(KEYS as readonly string[]).includes(key))
-  if (unknown.length) throw new Error(`${file}: unknown key ${unknown.map((key) => `"${key}"`).join(", ")}; allowed: ${KEYS.join(", ")}`)
-  const owner = (value as { owner?: unknown }).owner
-  if (owner !== undefined && (typeof owner !== "string" || !UUID.test(owner))) throw new Error(`${file}: "owner" must be a Notion user ID`)
-  const projects = (value as { projects?: unknown }).projects
-  if (projects !== undefined && (typeof projects !== "string" || !(projects.startsWith("/") || projects.startsWith("~/")))) {
-    throw new Error(`${file}: "projects" must be an absolute path or start with ~/`)
+  const parsed = ConfigFile.safeParse(value)
+  if (!parsed.success) throw new Error(`${file}: ${describeIssues(parsed.error)}`)
+  const config = parsed.data
+  return {
+    owner: config.owner ?? null,
+    projects: config.projects ?? null,
+    skills: config.skills ?? null,
+    automations: config.automations ? { ...config.automations, instructions: config.automations.instructions ?? null } : null,
+    onFailure: config.onFailure ?? null,
+    mcp: config.mcp ?? EMPTY_CONFIG.mcp,
   }
-  return { owner: owner ?? null, projects: projects ?? null }
+}
+
+/** `~/x` as an absolute path in this home. */
+export function expandHome(home: string, value: string): string {
+  return value.startsWith("~/") ? path.join(home, value.slice(2)) : value
 }
 
 /** The paths with the config applied: a projects folder it names replaces ~/projects. */
 export function withConfig(paths: Paths, config: Config): Paths {
   if (!config.projects) return paths
-  const projects = config.projects.startsWith("~/") ? path.join(paths.home, config.projects.slice(2)) : config.projects
-  return { ...paths, projects: path.resolve(projects) }
+  return { ...paths, projects: path.resolve(expandHome(paths.home, config.projects)) }
 }
 
 /** NOTION_ACCESS_TOKEN from the environment, else from the secrets file. */

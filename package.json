@@ -1,7 +1,7 @@
 {
   "name": "notion-code",
-  "version": "0.2.0",
-  "description": "Notion Code: Notion as the source of truth for every coding agent. Syncs Notion instructions to the AGENTS.md files Claude Code, Codex and OpenCode read.",
+  "version": "0.3.0",
+  "description": "Notion Code: Notion as the source of truth for every coding agent. Syncs Notion instructions and skills to the files Claude Code, Codex and OpenCode read, and runs Notion automations on any of them.",
   "type": "module",
   "private": true,
   "license": "MIT",
@@ -16,7 +16,11 @@
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
+    "@types/bun": "^1.4.4",
     "@types/node": "^26.6.6",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
   }
 }

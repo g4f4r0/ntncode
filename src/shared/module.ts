@@ -7,46 +7,87 @@ import type { Notion } from "./notion.ts"
  */
 export interface Module {
   name: string
-  tasks(): Task[]
+  /** Read on every scheduler tick, so a module can return tasks from its own files, such as one per automation. */
+  tasks(context: Context): Task[]
   checks?(context: Context): Check[] | Promise<Check[]>
+  /** Called once when `ntncode serve` starts, and on every tick after the tasks, for upkeep such as retries. */
+  serve?: { start?(context: Context): Promise<Result[]>; tick?(context: Context): Promise<Result[]> }
 }
 
-/** Something the scheduler runs, on an RFC 5545 recurrence rule. */
+/**
+ * Something the scheduler runs. A `sync` task runs in turn with the other syncs, under the sync lock, and `ntncode
+ * sync` runs them all at once. A `run` task runs on its own, alongside others, never twice at the same time.
+ */
 export interface Task {
-  /** `<module>.<name>`, such as `instructions.sync`. */
+  /** `<module>.<name>`, such as `instructions.sync`, or an automation's ID, such as `AUT-12`. */
   id: string
-  /** An RRULE, such as `FREQ=MINUTELY;INTERVAL=10`. */
+  kind: "sync" | "run"
+  /** iCalendar text: a DTSTART line and, unless it runs once, an RRULE line. */
   schedule: string
-  run(context: Context): Promise<Result[]>
+  /** Occurrences at or before this time never fire: when the task first appeared. Null fires the latest missed one. */
+  since: string | null
+  /** Run tasks with the same group never run at the same time; by default the group is the ID. */
+  group?: string
+  run(context: Context, fire: Fire): Promise<Result[]>
 }
 
-/** How often each sync runs. */
-export const SYNC_SCHEDULE = "FREQ=MINUTELY;INTERVAL=10"
+/** Why a task runs now: the occurrence it fires for, or a manual start. */
+export interface Fire {
+  trigger: "Scheduled" | "Manual"
+  /** The scheduled occurrence, as an ISO instant; for a manual start, the time it was asked for. */
+  at: string
+}
+
+/** Every sync starts on the hour and repeats every 10 minutes, in UTC. */
+export const SYNC_SCHEDULE = "DTSTART:20260101T000000Z\nRRULE:FREQ=MINUTELY;INTERVAL=10"
 
 export interface Context {
   paths: Paths
   config: Config
-  /** Read-only: the sync never writes to Notion. */
+  /** Read-only. Only the automations runner writes to Notion, through its own writer. */
   notion: Notion
+  /** The Notion token, for the runner's writer; never logged. */
+  token: string
   dryRun: boolean
   now: Date
 }
 
-export type Status = "written" | "unchanged" | "skipped" | "failed" | "linked" | "would write" | "would link"
+export type Status =
+  | "written"
+  | "unchanged"
+  | "removed"
+  | "skipped"
+  | "failed"
+  | "linked"
+  | "started"
+  | "completed"
+  | "would write"
+  | "would remove"
+  | "would link"
 
-/** One line of a run's report: a file or link, what happened to it, and why. */
+/** One line of a report: a file, link or run, what happened to it, and why. */
 export interface Result {
   status: Status
   path: string
   detail: string
 }
 
-/** One line of `doctor`: something that should be true, and whether it is. */
+/**
+ * One line of `doctor`. `error` means something is broken or will break; `warning` means it works but needs a look.
+ * `fix` says exactly what to do, for whoever reads it next.
+ */
 export interface Check {
   ok: boolean
   name: string
   detail: string
+  level?: "error" | "warning"
+  fix?: string
 }
 
-/** A result that needs a person to look at it. */
+/** A result that needs someone to look at it. */
 export const needsAttention = (result: Result) => result.status === "failed" || result.status === "skipped"
+
+/** `~/…` for a path inside home, so reports don't leak the user name and stay short. */
+export function show(paths: Pick<Paths, "home">, file: string): string {
+  return file === paths.home ? "~" : file.startsWith(`${paths.home}/`) ? `~/${file.slice(paths.home.length + 1)}` : file
+}

@@ -8,12 +8,37 @@ function toCodeSpan(code: string): string {
   return `${fence}${padding}${code}${padding}${fence}`
 }
 
-function normalizeInline(line: string): string {
+const ESCAPE = /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])/gu
+const unescape = (text: string) => text.replace(ESCAPE, "$1")
+
+/**
+ * Notion's export of plain text, undone for agents, who read the raw text: a bare file or domain name it turned into
+ * a link (`[a.md](http://a.md)`) goes back to the name, an autolink (`<https://x>`) to the address, and its markdown
+ * escapes (`New\_York`, `\<id>`) to the characters. Code spans are left exactly as they are.
+ */
+function plainForAgents(line: string): string {
   return line
-    .replace(/<code>([\s\S]*?)<\/code>/gu, (_, code: string) => toCodeSpan(code))
-    .replace(/<(page|database|mention)\s+[^>]*?url="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/gu, (_, _tag: string, url: string, label: string) => `[${label}](${url})`)
-    .replace(/<mention\s+[^>]*?url="([^"]+)"[^>]*\/>/gu, (_, url: string) => `<${url}>`)
-    .replace(/<\/?(?:span|u)(?:\s[^>]*)?>/gu, "")
+    .split(/(`+[^`]*?`+)/u)
+    .map((part, index) => {
+      if (index % 2 === 1) return part
+      const delinked = part.replace(/\[((?:\\.|[^\]\\\n])+)\]\(([^)\s]+)\)/gu, (whole, label: string, url: string) => {
+        const text = unescape(label)
+        return [text, `http://${text}`, `https://${text}`, `mailto:${text}`].includes(url) ? label : whole
+      })
+      // An autolink, <https://…> or <collection://…>, is the bare address.
+      return unescape(delinked.replace(/<([a-z][a-z0-9+.-]*:\/\/[^\s<>]+)>/gu, "$1"))
+    })
+    .join("")
+}
+
+function normalizeInline(line: string): string {
+  return plainForAgents(
+    line
+      .replace(/<code>([\s\S]*?)<\/code>/gu, (_, code: string) => toCodeSpan(code))
+      .replace(/<(page|database|mention)\s+[^>]*?url="([^"]+)"[^>]*>([\s\S]*?)<\/\1>/gu, (_, _tag: string, url: string, label: string) => `[${label}](${url})`)
+      .replace(/<mention\s+[^>]*?url="([^"]+)"[^>]*\/>/gu, (_, url: string) => `<${url}>`)
+      .replace(/<\/?(?:span|u)(?:\s[^>]*)?>/gu, ""),
+  )
 }
 
 function isClosingFence(line: string, fence: string): boolean {
@@ -68,9 +93,22 @@ export function normalizeNotionMarkdown(markdown: string): string {
       continue
     }
 
+    // A paragraph inside a list item comes as indented <p> and </p> lines around its text: markup, not content.
+    if (/^\s*<\/?p>\s*$/u.test(line)) continue
     push(emptyBlockPattern.test(line) ? "" : normalizeInline(line))
   }
 
   while (lines.at(-1) === "") lines.pop()
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`
+}
+
+/** Sets `disable-model-invocation: true` in a SKILL.md's frontmatter, so agents load it only when asked. */
+export function disableModelInvocation(markdown: string): string {
+  const match = markdown.match(/^---\n([\s\S]*?)\n---(?=\n|$)/u)
+  if (!match) throw new Error("SKILL.md must start with YAML frontmatter")
+  const lines = match[1]!.split("\n")
+  const index = lines.findIndex((line) => /^disable-model-invocation:/u.test(line))
+  if (index === -1) lines.push("disable-model-invocation: true")
+  else lines[index] = "disable-model-invocation: true"
+  return `${["---", ...lines, "---"].join("\n")}${markdown.slice(match[0].length)}`
 }

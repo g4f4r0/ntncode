@@ -2,15 +2,13 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Paths } from "../shared/config.ts"
 import { lstat } from "../shared/files.ts"
-import type { Check, Result } from "../shared/module.ts"
+import { show, type Check, type Result } from "../shared/module.ts"
 
 /** A path an agent reads, linked to the one copy in ~/.agents. */
 export interface Link {
   link: string
   target: string
 }
-
-const show = (paths: Paths, file: string) => (file.startsWith(`${paths.home}/`) ? `~/${path.relative(paths.home, file)}` : file)
 
 function pointsAt(link: string, target: string): boolean {
   const stats = lstat(link)
@@ -31,9 +29,15 @@ export function ensureLinks(links: Link[], { dryRun = false } = {}): Result[] {
 }
 
 export function linkChecks(paths: Paths, links: Link[]): Check[] {
-  return links.map(({ link, target }) => ({
-    ok: pointsAt(link, target),
-    name: show(paths, link),
-    detail: pointsAt(link, target) ? `links to ${show(paths, target)}` : `should link to ${show(paths, target)}; run ntncode sync`,
-  }))
+  return links.map(({ link, target }): Check =>
+    pointsAt(link, target)
+      ? { ok: true, name: show(paths, link), detail: `links to ${show(paths, target)}` }
+      : {
+          ok: false,
+          level: "error",
+          name: show(paths, link),
+          detail: lstat(link) ? `something else is there, not a link to ${show(paths, target)}` : `missing; should link to ${show(paths, target)}`,
+          fix: lstat(link) ? `move ${show(paths, link)} away (keep what you need from it), then run ntncode sync` : "run ntncode sync",
+        },
+  )
 }

@@ -1,0 +1,24 @@
+[Unit]
+Description=Notion Code scheduler: syncs every 10 minutes and runs Notion automations on their schedules
+Documentation=https://github.com/g4f4r0/notion-code
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Agents run as this unit's children; put every agent CLI and Bun on PATH.
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.local/node/bin:%h/.opencode/bin:%h/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+# NOTION_ACCESS_TOKEN, and anything the agents' MCP servers read, such as EXECUTOR_TOKEN.
+EnvironmentFile=-%h/.config/secrets.env
+# What the agents need to sign in when they run unattended, such as a provider key your shell profile exports.
+EnvironmentFile=-%h/.config/notion-code/agents.env
+WorkingDirectory=%h
+ExecStart=%h/.local/bin/ntncode serve
+Restart=always
+RestartSec=10
+# Stopping the scheduler stops its runs; the next start marks them Failed and alerts. Give them a moment to end first.
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

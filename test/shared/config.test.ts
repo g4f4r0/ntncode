@@ -2,21 +2,24 @@ import assert from "node:assert/strict"
 import fs from "node:fs"
 import { test } from "node:test"
 import path from "node:path"
-import { readConfig, readToken, withConfig } from "../../src/shared/config.ts"
+import { EMPTY_CONFIG, readConfig, readToken, withConfig } from "../../src/shared/config.ts"
 import { tempHome } from "../helpers.ts"
 
 const OWNER = "5f6e7d8c-9b0a-4f1e-8d2c-3b4a5f6e7d8c"
 
 test("a missing config is the default; a valid one is read", () => {
   const paths = tempHome()
-  assert.deepEqual(readConfig(paths.config), { owner: null, projects: null })
+  assert.deepEqual(readConfig(paths.config), EMPTY_CONFIG)
   fs.writeFileSync(paths.config, JSON.stringify({ owner: OWNER }))
-  assert.deepEqual(readConfig(paths.config), { owner: OWNER, projects: null })
+  assert.deepEqual(readConfig(paths.config), { ...EMPTY_CONFIG, owner: OWNER })
+  const full = { owner: OWNER.replaceAll("-", "").toUpperCase(), skills: OWNER, automations: { automations: OWNER, runs: OWNER }, onFailure: "~/alert.sh", mcp: ["notion", "executor"] }
+  fs.writeFileSync(paths.config, JSON.stringify(full))
+  assert.deepEqual(readConfig(paths.config), { ...EMPTY_CONFIG, owner: OWNER, skills: OWNER, automations: { automations: OWNER, runs: OWNER, instructions: null }, onFailure: "~/alert.sh", mcp: ["notion", "executor"] })
 })
 
 test("an unknown key, a bad owner, or broken JSON is an error, never ignored", () => {
   const paths = tempHome()
-  for (const content of [JSON.stringify({ owner: OWNER, ownr: "x" }), JSON.stringify({ owner: "Johan" }), JSON.stringify({ projects: "code" }), "{ nope", "[]"]) {
+  for (const content of [JSON.stringify({ owner: OWNER, ownr: "x" }), JSON.stringify({ owner: "Johan" }), JSON.stringify({ projects: "code" }), JSON.stringify({ automations: { automations: OWNER } }), JSON.stringify({ automations: { automations: OWNER, runs: OWNER, extra: 1 } }), JSON.stringify({ mcp: ["no spaces"] }), JSON.stringify({ onFailure: "" }), "{ nope", "[]"]) {
     fs.writeFileSync(paths.config, content)
     assert.throws(() => readConfig(paths.config))
   }
@@ -40,7 +43,7 @@ test("the token comes from the environment first, then the secrets file", () => 
 
 test("a projects folder in the config replaces ~/projects", () => {
   const paths = tempHome()
-  assert.equal(withConfig(paths, { owner: null, projects: null }).projects, paths.projects)
-  assert.equal(withConfig(paths, { owner: null, projects: "~/code" }).projects, path.join(paths.home, "code"))
-  assert.equal(withConfig(paths, { owner: null, projects: "/srv/work" }).projects, "/srv/work")
+  assert.equal(withConfig(paths, EMPTY_CONFIG).projects, paths.projects)
+  assert.equal(withConfig(paths, { ...EMPTY_CONFIG, projects: "~/code" }).projects, path.join(paths.home, "code"))
+  assert.equal(withConfig(paths, { ...EMPTY_CONFIG, projects: "/srv/work" }).projects, "/srv/work")
 })

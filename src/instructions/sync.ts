@@ -1,6 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
-import type { Paths } from "../shared/config.ts"
+import { z } from "zod"
+import { describeIssues, type Paths } from "../shared/config.ts"
 import { hash, lstat, readJson, writeAtomic } from "../shared/files.ts"
 import { normalizeNotionMarkdown } from "../shared/markdown.ts"
 import type { Result } from "../shared/module.ts"
@@ -24,7 +25,7 @@ interface FileState {
  * How files are written: the header and the markdown conversion. Bump it whenever either changes, so every file is
  * written again on the next sync even though its page wasn't edited.
  */
-export const FORMAT = 2
+export const FORMAT = 3
 
 /** Notion rounds last_edited_time down to the minute; trust it only when the last sync ran well after that minute. */
 const SETTLED_MS = 120_000
@@ -44,6 +45,15 @@ export function parsePageId(value: unknown): string | null {
   const id = matches?.at(-1)?.replaceAll("-", "")
   return id ? `${id.slice(0, 8)}-${id.slice(8, 12)}-${id.slice(12, 16)}-${id.slice(16, 20)}-${id.slice(20)}` : null
 }
+
+/** A notion.json: the one page whose markdown becomes the AGENTS.md beside it. */
+export const NotionJson = z.strictObject({
+  instructions: z.string().transform((value, context) => {
+    const page = parsePageId(value)
+    if (!page) context.addIssue({ code: "custom", message: "must be a Notion page ID or link" })
+    return page ?? ""
+  }),
+})
 
 interface Mapping {
   /** The notion.json. */
@@ -79,20 +89,12 @@ export function findMappings(paths: Paths): { mappings: Mapping[]; problems: Res
       fail(`not valid JSON (${(error as Error).message})`)
       continue
     }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      fail('must be an object, { "instructions": "<Notion page ID or link>" }')
+    const parsed = NotionJson.safeParse(value)
+    if (!parsed.success) {
+      fail(`${describeIssues(parsed.error)}; expected { "instructions": "<Notion page ID or link>" }`)
       continue
     }
-    const unknown = Object.keys(value).filter((key) => key !== "instructions")
-    if (unknown.length) {
-      fail(`unknown key ${unknown.map((key) => `"${key}"`).join(", ")}; only "instructions" is allowed`)
-      continue
-    }
-    const page = parsePageId((value as { instructions?: unknown }).instructions)
-    if (!page) {
-      fail('"instructions" must be a Notion page ID or link')
-      continue
-    }
+    const page = parsed.data.instructions
     mappings.push({ source, target, page })
   }
   return { mappings, problems }

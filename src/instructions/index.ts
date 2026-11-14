@@ -7,7 +7,9 @@ export const instructions: Module = {
   tasks: () => [
     {
       id: "instructions.sync",
+      kind: "sync",
       schedule: SYNC_SCHEDULE,
+      since: null,
       run: (context) => syncInstructions(context.notion, context.paths, { dryRun: context.dryRun, now: context.now }),
     },
   ],

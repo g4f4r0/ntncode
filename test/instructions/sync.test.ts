@@ -6,6 +6,7 @@ import { test } from "node:test"
 import type { Paths } from "../../src/shared/config.ts"
 import type { Notion, NotionPage } from "../../src/shared/notion.ts"
 import { HEADER_PREFIX, parsePageId, syncInstructions } from "../../src/instructions/sync.ts"
+import { fakeNotion as baseNotion } from "../helpers.ts"
 
 const PAGE = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 const GLOBAL = "5f6e7d8c-9b0a-4f1e-8d2c-3b4a5f6e7d8c"
@@ -20,7 +21,7 @@ function setup() {
 
 function fakeNotion(pages: Record<string, { title: string; markdown: string; edited?: string; trash?: boolean }>) {
   const calls = { page: 0, markdown: 0 }
-  const notion: Notion = {
+  const notion: Notion = baseNotion({
     async getPage(id) {
       calls.page += 1
       const page = pages[id]
@@ -37,7 +38,8 @@ function fakeNotion(pages: Record<string, { title: string; markdown: string; edi
       calls.markdown += 1
       return pages[id]!.markdown
     },
-  }
+  })
+
   return { notion, calls }
 }
 

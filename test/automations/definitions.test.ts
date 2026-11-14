@@ -1,0 +1,148 @@
+import assert from "node:assert/strict"
+import fs from "node:fs"
+import path from "node:path"
+import { test } from "node:test"
+import { definitionsFolder, readDefinitions, syncAutomations } from "../../src/automations/definitions.ts"
+import { EMPTY_CONFIG, type Config } from "../../src/shared/config.ts"
+import type { NotionPage } from "../../src/shared/notion.ts"
+import { dueOccurrence } from "../../src/scheduler/serve.ts"
+import { fakeNotion, tempHome } from "../helpers.ts"
+import { automationPage, BOT, OWNER, PROJECT, projectPage, type RowInput } from "./fixtures.ts"
+
+const SOURCE = "1e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
+const config: Config = { ...EMPTY_CONFIG, owner: OWNER, automations: { automations: SOURCE, runs: SOURCE, instructions: null } }
+
+function setup() {
+  const paths = tempHome()
+  fs.mkdirSync(path.join(paths.projects, "acme"))
+  return paths
+}
+
+/** A Notion with these rows; records the query filter and markdown reads. */
+function notionWith(rows: RowInput[], prompt = "Audit the store.") {
+  const calls = { filters: [] as unknown[], markdown: 0 }
+  const pages: NotionPage[] = rows.map((row) => automationPage(row))
+  const notion = fakeNotion({
+    queryDataSource: async (_source, body) => {
+      calls.filters.push(body?.filter)
+      return pages
+    },
+    getPage: async (id) => {
+      assert.equal(id, PROJECT)
+      return projectPage("acme")
+    },
+    getPageMarkdown: async () => {
+      calls.markdown += 1
+      return prompt
+    },
+  })
+  return { notion, calls }
+}
+
+const at = (iso: string) => new Date(iso)
+
+test("an enabled row the owner last edited becomes an automation file with everything a run needs", async () => {
+  const paths = setup()
+  const { notion, calls } = notionWith([{ model: "claude-opus-5-5" }])
+  const results = await syncAutomations(notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.deepEqual(results.map((result) => result.status), ["written"])
+  assert.deepEqual(calls.filters[0], { property: "Owner", people: { contains: OWNER } }, "only the owner's rows are read")
+  const [definition] = readDefinitions(paths).definitions
+  assert.equal(definition!.id, "AUT-12")
+  assert.equal(definition!.directory, path.join(paths.projects, "acme"))
+  assert.equal(definition!.schedule, "DTSTART;TZID=Europe/Madrid:20261115T080000\nRRULE:FREQ=DAILY")
+  assert.deepEqual([definition!.agent, definition!.model, definition!.effort, definition!.timeZone, definition!.prompt], ["Claude Code", "claude-opus-5-5", "high", "Europe/Madrid", "Audit the store."])
+  assert.equal(definition!.since, "2026-11-14T07:59:59.999Z", "runs count from the owner's edit at 08:00, not from the sync")
+})
+
+test("a run due between the owner's enable and the sync that reads it still fires; a schedule change never fires an old time", async () => {
+  const paths = setup()
+  // Enabled at 08:59 for a one-off at 09:00; the sync only reads it at 09:00:05.
+  await syncAutomations(notionWith([{ repeat: "Once", start: "2026-11-15T09:00:00.000Z", zone: "UTC", edited: "2026-11-15T08:59:00.000Z" }]).notion, paths, config, { now: at("2026-11-15T09:00:05Z") })
+  const once = readDefinitions(paths).definitions[0]!
+  assert.equal(dueOccurrence(once as never, null, at("2026-11-15T09:00:20Z")), "2026-11-15T09:00:00.000Z")
+
+  // A daily 15:00 changed at 14:00 to 13:00 doesn't fire 13:00 today, late.
+  const daily = setup()
+  await syncAutomations(notionWith([{ start: "2026-11-15T15:00:00.000Z", zone: "UTC", edited: "2026-11-15T10:00:00.000Z" }]).notion, daily, config, { now: at("2026-11-15T10:05:00Z") })
+  await syncAutomations(notionWith([{ start: "2026-11-15T13:00:00.000Z", zone: "UTC", edited: "2026-11-16T14:00:00.000Z" }]).notion, daily, config, { now: at("2026-11-16T14:05:00Z") })
+  const changed = readDefinitions(daily).definitions[0]!
+  assert.equal(changed.since, "2026-11-16T13:59:59.999Z")
+  assert.equal(dueOccurrence(changed as never, "2026-11-15T15:00:00.000Z", at("2026-11-16T14:06:00Z")), null)
+})
+
+test("a row last edited by anyone but the owner never becomes runnable, and an existing file keeps its old version", async () => {
+  const paths = setup()
+  const first = await syncAutomations(notionWith([{ editedBy: BOT }]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(first[0]!.status, "skipped")
+  assert.match(first[0]!.detail, /not the owner; not scheduled/u)
+  assert.equal(readDefinitions(paths).definitions.length, 0)
+
+  await syncAutomations(notionWith([{}], "Old prompt.").notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  const edited = await syncAutomations(notionWith([{ editedBy: BOT, edited: "2026-11-14T10:00:00.000Z" }], "Agent's new prompt.").notion, paths, config, { now: at("2026-11-14T10:05:00Z") })
+  assert.equal(edited[0]!.status, "skipped")
+  assert.match(edited[0]!.detail, /previous version stays scheduled/u)
+  assert.equal(readDefinitions(paths).definitions[0]!.prompt, "Old prompt.")
+})
+
+test("disabling always takes effect, whoever did it; so does trashing or giving it another owner", async () => {
+  for (const change of [{ status: "Disabled" as const, editedBy: BOT }, { trash: true }, { owners: [BOT] }]) {
+    const paths = setup()
+    await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+    const rows = "owners" in change ? [] : [change]
+    const results = await syncAutomations(notionWith(rows).notion, paths, config, { now: at("2026-11-14T10:00:00Z") })
+    assert.deepEqual(results.map((result) => result.status), ["removed"], JSON.stringify(change))
+    assert.equal(readDefinitions(paths).definitions.length, 0)
+  }
+})
+
+test("an unchanged, settled row isn't read again; one edited in the same minute as the last sync is", async () => {
+  const paths = setup()
+  const { notion, calls } = notionWith([{ edited: "2026-11-14T09:00:00.000Z" }])
+  await syncAutomations(notion, paths, config, { now: at("2026-11-14T09:00:30Z") })
+  assert.equal(calls.markdown, 1)
+  await syncAutomations(notion, paths, config, { now: at("2026-11-14T09:10:00Z") })
+  assert.equal(calls.markdown, 2, "the first sync ran within two minutes of the edit, so it reads again")
+  const results = await syncAutomations(notion, paths, config, { now: at("2026-11-14T09:20:00Z") })
+  assert.equal(calls.markdown, 2)
+  assert.equal(results[0]!.status, "unchanged")
+})
+
+test("an invalid row is reported with every problem and doesn't run; a valid earlier version stays", async () => {
+  const paths = setup()
+  const bad = await syncAutomations(notionWith([{ agent: null, start: null }]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(bad[0]!.status, "failed")
+  assert.match(bad[0]!.detail, /Agent: is required.*Start: is required|Start: is required.*Agent: is required/u)
+  await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  const broken = await syncAutomations(notionWith([{ repeat: "Once", days: ["Mon"], edited: "2026-11-14T11:00:00.000Z" }]).notion, paths, config, { now: at("2026-11-14T11:10:00Z") })
+  assert.equal(broken[0]!.status, "failed")
+  assert.match(broken[0]!.detail, /previous version stays scheduled/u)
+  assert.equal(readDefinitions(paths).definitions.length, 1)
+})
+
+test("a project without a Folder, or one missing on disk, an empty prompt and two owners are refused", async () => {
+  const paths = tempHome()
+  const missing = await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.match(missing[0]!.detail, /doesn't exist on this machine/u)
+  fs.mkdirSync(path.join(paths.projects, "acme"))
+  assert.match((await syncAutomations(notionWith([{}], "  ").notion, paths, config))[0]!.detail, /prompt, is empty/u)
+  assert.match((await syncAutomations(notionWith([{ owners: [OWNER, BOT] }]).notion, paths, config))[0]!.detail, /exactly one person/u)
+  const noProject = await syncAutomations(notionWith([{ project: null }]).notion, paths, config)
+  assert.equal(noProject[0]!.status, "written")
+  assert.equal(readDefinitions(paths).definitions[0]!.directory, path.join(paths.state, "workspace"))
+})
+
+test("a failed query changes nothing; no owner runs nothing; a dry run writes nothing", async () => {
+  const paths = setup()
+  await syncAutomations(notionWith([{}]).notion, paths, config)
+  const down = fakeNotion({ queryDataSource: async () => Promise.reject(new Error("Notion unreachable (ECONNRESET)")) })
+  const results = await syncAutomations(down, paths, config)
+  assert.equal(results.at(-1)!.status, "failed")
+  assert.equal(readDefinitions(paths).definitions.length, 1)
+  assert.match((await syncAutomations(down, paths, { ...config, owner: null }))[0]!.detail, /no "owner"/u)
+
+  const fresh = setup()
+  const dry = await syncAutomations(notionWith([{}]).notion, fresh, config, { dryRun: true })
+  assert.equal(dry[0]!.status, "would write")
+  assert.equal(fs.existsSync(definitionsFolder(fresh)), false)
+})
