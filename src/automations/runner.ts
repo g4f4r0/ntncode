@@ -77,14 +77,26 @@ export function renderPrompt(input: {
 }
 
 /** The run's page body: who ran it and how to open the session, then the agent's final reply. */
+/** A length of time for people: 27 s, 4 min, 1 h 5 min. */
+export function duration(ms: number): string {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds} s`
+  const minutes = Math.round(seconds / 60)
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`
+}
+
+/**
+ * The run's page body: one line on what ran and for how long, one to open its session, then the agent's final reply.
+ * The Title and Date already hold when it was scheduled, started and finished.
+ */
 export function renderReport(input: { agent: AgentName; model: string | null; effort: string | null; session: string | null; resume: string | null; trigger: string; at: string; startedAt: string; finishedAt: string; ok: boolean; reply: string; error: string | null }): string {
-  const head = [
-    `- Agent: ${input.agent}${input.model ? `, model \`${input.model}\`` : ""}${input.effort ? `, effort ${input.effort}` : ""}`,
-    `- Session: ${input.session ? `\`${input.session}\`` : "none"}${input.resume ? `; open it with \`${input.resume}\`` : ""}`,
-    `- ${input.trigger === "Scheduled" ? `Scheduled for ${input.at}, started` : "Started by hand"} ${input.startedAt}, finished ${input.finishedAt}`,
-  ]
+  const ran = [input.agent, input.model ? `\`${input.model}\`` : null, input.effort ? `${input.effort} effort` : null, duration(Date.parse(input.finishedAt) - Date.parse(input.startedAt))]
+  const late = input.trigger === "Scheduled" ? Date.parse(input.startedAt) - Date.parse(input.at) : 0
+  const head = [ran.filter(Boolean).join(" · ")]
+  if (late > 120_000) head.push(`Started ${duration(late)} after its scheduled time.`)
+  if (input.resume) head.push(`Resume: \`${input.resume}\``)
   const body = input.ok ? input.reply.trim() || "The agent finished without a final reply." : `**Failed:** ${input.error ?? "unknown error"}${input.reply.trim() ? `\n\n${input.reply.trim()}` : ""}`
-  return `${head.join("\n")}\n\n---\n\n${cut(body, REPORT_CHARS)}\n`
+  return `${head.join("\n\n")}\n\n---\n\n${cut(body, REPORT_CHARS)}\n`
 }
 
 /**

@@ -5,7 +5,7 @@ import { test } from "node:test"
 import type { Agent, AgentName, AgentRunInput } from "../../src/agents/index.ts"
 import { definitionsFolder, type Definition } from "../../src/automations/definitions.ts"
 import { automations } from "../../src/automations/index.ts"
-import { alert, renderPrompt, resultPath, runAutomation } from "../../src/automations/runner.ts"
+import { alert, duration, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
 import { outboxFolder, readInflight, runKey, writeInflight } from "../../src/automations/runs.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
 import type { NotionWriter } from "../../src/shared/notion-writer.ts"
@@ -121,8 +121,8 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   assert.deepEqual([calls[0]!.directory, calls[0]!.model, calls[0]!.effort], [path.join(paths.projects, "acme"), "claude-opus-5-5", "high"])
 
   const markdown = writes.find((write) => write.kind === "markdown")!.body as string
-  assert.match(markdown, /Agent: Claude Code, model `claude-opus-5-5`, effort high/u)
-  assert.match(markdown, /claude --resume sess-1/u)
+  assert.match(markdown, /^Claude Code · `claude-opus-5-5` · high effort · \d+ s\n\nResume: `claude --resume sess-1`\n\n---\n\n/u)
+  assert.doesNotMatch(markdown, /after its scheduled time/u, "it started on time")
   assert.match(markdown, /All good: 0 issues./u)
   const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown; Date: { date: { end: string } } } }
   assert.deepEqual(update.properties.Status, { status: { name: "Completed" } })
@@ -243,4 +243,10 @@ test("a broken manual request is set aside and never stops the scheduled automat
   assert.deepEqual(tasks.map((task) => task.id), ["automations.sync", "AUT-12"])
   assert.equal(fs.existsSync(path.join(folder, "bad.json")), false)
   assert.equal(fs.readdirSync(path.join(paths.state, "backups/invalid")).length, 1)
+})
+
+test("a run's length reads naturally, and a late start says how late", () => {
+  assert.deepEqual([duration(27_000), duration(240_000), duration(3_900_000)], ["27 s", "4 min", "1 h 5 min"])
+  const late = renderReport({ agent: "Codex", model: null, effort: null, session: null, resume: null, trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", startedAt: "2026-11-15T07:12:00.000Z", finishedAt: "2026-11-15T07:13:00.000Z", ok: false, reply: "", error: "boom" })
+  assert.equal(late, "Codex · 1 min\n\nStarted 12 min after its scheduled time.\n\n---\n\n**Failed:** boom\n")
 })
