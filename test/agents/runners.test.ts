@@ -140,20 +140,6 @@ test("each agent's MCP list is read, and a missing or signed-out server is an er
   )
 })
 
-test("OpenCode refuses to run while opencode-automations is configured, so nothing fires twice", async () => {
-  const fake = stub("opencode", "")
-  try {
-    fs.mkdirSync(path.join(fake.paths.home, ".config/opencode"), { recursive: true })
-    fs.writeFileSync(path.join(fake.paths.home, ".config/opencode/opencode.jsonc"), '{\n  // opencode-automations was here\n  "plugins": [{ "package": "/x/opencode-automations" }]\n}\n')
-    const output = await openCode.run(fake.paths, input(fake.directory))
-    assert.equal(output.ok, false)
-    assert.match(output.error!, /opencode-automations removed/u)
-    assert.equal(fs.existsSync(path.join(fake.paths.home, "record.argv")), false, "never started")
-  } finally {
-    fake.restore()
-  }
-})
-
 test("each agent names the variables it needs to sign in unattended, from its own config", () => {
   const paths = tempHome()
   fs.mkdirSync(path.join(paths.home, ".claude"))

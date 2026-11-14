@@ -61,7 +61,7 @@ backups, unless it was edited by hand. When any Notion read fails, every skill s
 | `~/.claude/CLAUDE.md` | `../.agents/AGENTS.md` | Claude Code's global instructions file |
 | `~/.claude/skills` | `../.agents/skills` | Claude Code doesn't read `~/.agents/skills`; Codex and OpenCode do |
 | `~/.codex/AGENTS.md` | `../.agents/AGENTS.md` | Codex's global instructions file |
-| `~/.config/opencode/AGENTS.md` | `../../.agents/AGENTS.md` | OpenCode's global instructions file. Made only once opencode-notion is gone, which adds the same text itself |
+| `~/.config/opencode/AGENTS.md` | `../../.agents/AGENTS.md` | OpenCode's global instructions file. Made only when `~/.config/opencode` exists |
 
 The sync makes a link only when nothing is at that path yet. Whatever is already there, it leaves alone and reports.
 
@@ -353,8 +353,7 @@ python-dateutil.
    subfolder, Codex reads only that subfolder's `AGENTS.md`.
 2. Agents read instructions when a session starts. An edit reaches new sessions, not ones already running.
 3. An OpenCode run starts a private OpenCode (`--standalone`), because OpenCode's background service ignores the
-   caller's folder. It refuses while the `opencode-automations` plugin is configured, which has no lock and could fire
-   its own automations a second time.
+   caller's folder.
 4. There is no webhook trigger; automations run on schedules or by hand.
 5. On some Linux servers, Codex's sandbox can't run shell commands at all (`bwrap: loopback: Failed RTM_NEWADDR`).
    There, Codex needs full access to run `ntncode artifact`.

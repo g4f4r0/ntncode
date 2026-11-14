@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite"
 import fs from "node:fs"
 import path from "node:path"
 import { z } from "zod"
@@ -9,14 +8,10 @@ import { findBinary, mcpChecks, oneLine, type Agent, type McpServer } from "./ag
 import { failureDetails } from "./failure.ts"
 import type { Link } from "./links.ts"
 
-/**
- * OpenCode reads ~/.agents/skills and project AGENTS.md files itself; its global instructions file is in its config
- * folder. While its Notion plugin (opencode-notion) is configured, that plugin adds the same instructions to every
- * session, so the link waits until the plugin is removed.
- */
+/** OpenCode reads ~/.agents/skills and project AGENTS.md files itself; its global instructions file is in its config folder. */
 export function openCodeLinks(paths: Paths): Link[] {
   const folder = path.join(paths.home, ".config/opencode")
-  if (!fs.existsSync(folder) || retiredPlugins(paths).includes("opencode-notion")) return []
+  if (!fs.existsSync(folder)) return []
   return [{ link: path.join(folder, "AGENTS.md"), target: path.join(paths.agents, "AGENTS.md") }]
 }
 
@@ -60,27 +55,6 @@ export function openCodeModel(model: string): string | null {
 
 const binary = (paths: Paths) => findBinary("opencode", [path.join(paths.home, ".opencode/bin"), path.join(paths.home, ".local/bin")])
 
-/** OpenCode's plugins that Notion Code replaces, still in its config. */
-function retiredPlugins(paths: Paths): string[] {
-  const file = path.join(paths.home, ".config/opencode/opencode.jsonc")
-  if (!fs.existsSync(file)) return []
-  // Comments may mention a plugin; only quoted strings outside comments count.
-  const text = fs.readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gmu, "")
-  return ["opencode-notion", "opencode-automations"].filter((name) => new RegExp(`"[^"]*${name}"`, "u").test(text))
-}
-
-/** OpenCode automations that are still enabled: none may also be enabled in Notion. */
-function enabledOpenCodeAutomations(paths: Paths): string[] | null {
-  const file = path.join(paths.home, ".local/share/opencode-automations/automations.db")
-  if (!fs.existsSync(file)) return null
-  const db = new Database(file, { readonly: true })
-  try {
-    return (db.query("select name from automations where enabled = 1 order by name").all() as { name: string }[]).map((row) => row.name)
-  } finally {
-    db.close()
-  }
-}
-
 export const openCode: Agent = {
   name: "OpenCode",
   binary,
@@ -89,12 +63,7 @@ export const openCode: Agent = {
   async run(paths, input) {
     const bin = binary(paths)
     if (!bin) return { ok: false, reply: "", session: null, resume: null, usage: null, error: "OpenCode (opencode) isn't installed" }
-    // A run gets a private OpenCode (--standalone), because the background service ignores the caller's folder. A
-    // private OpenCode loads every plugin, and opencode-automations has no lock, so it could fire its own automations
-    // a second time: refuse until it's removed.
-    if (retiredPlugins(paths).includes("opencode-automations")) {
-      return { ok: false, reply: "", session: null, resume: null, usage: null, error: "OpenCode runs need opencode-automations removed from ~/.config/opencode/opencode.jsonc first; a private OpenCode would also start its scheduler" }
-    }
+    // A private OpenCode (--standalone), because the background service ignores the caller's folder.
     const args = ["run", "--standalone", "--format", "json", "--auto", "--title", input.title]
     // OpenCode sets effort as the model's variant, so it needs a model.
     const model = input.model ? openCodeModel(input.model) : null
@@ -164,25 +133,6 @@ export const openCode: Agent = {
         login: (name) => `opencode mcp auth ${name}`,
       }),
     )
-    for (const plugin of retiredPlugins(paths)) {
-      checks.push({
-        ok: false,
-        level: "warning",
-        name: `OpenCode plugin ${plugin}`,
-        detail: plugin === "opencode-notion" ? "still configured: it also syncs ~/.agents/skills and OpenCode's instructions, which Notion Code now does" : "still configured: it runs automations, which Notion Code now does",
-        fix: `remove it from "plugins" in ~/.config/opencode/opencode.jsonc, then restart OpenCode${plugin === "opencode-notion" ? ". Never turn off its skills toggle instead: that deletes ~/.agents/skills" : ""}`,
-      })
-    }
-    const enabled = enabledOpenCodeAutomations(paths)
-    if (enabled?.length) {
-      checks.push({
-        ok: false,
-        level: "warning",
-        name: "OpenCode automations",
-        detail: `${enabled.length} still enabled: ${enabled.join("; ")}`,
-        fix: "move each to Notion and pause it in OpenCode in the same minute; an automation must never be enabled in both",
-      })
-    }
     return checks
   },
 }
