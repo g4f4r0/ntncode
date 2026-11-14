@@ -140,7 +140,7 @@ export function renderReport(input: ReportInput): string {
     ["Trigger", input.trigger === "Scheduled" && late > 120_000 ? `Scheduled, started ${duration(late)} late` : input.trigger],
     ["Duration", duration(Date.parse(input.finishedAt) - Date.parse(input.startedAt))],
     ["Cost", usage?.costUsd != null ? `$${usage.costUsd.toFixed(2)}` : "–"],
-    ["Tokens", usage ? `${count(usage.input)} in · ${count(usage.cached)} cached · ${count(usage.output)} out` : "–"],
+    ["Tokens", usage ? `${count(usage.input)} in, ${count(usage.cached)} cached, ${count(usage.output)} out` : "–"],
     ["Session", input.session ? `\`${input.session}\`` : "–"],
     ["Folder", `\`${input.folder}\``],
   ]
