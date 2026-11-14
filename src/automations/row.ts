@@ -293,7 +293,7 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
   if (projects.length > 1) read.fail("Project", "link one project at most")
   const agentName = read.select("Agent")
   const agent = AgentName.safeParse(agentName)
-  if (!agent.success) read.fail("Agent", agentName ? `unknown agent ${agentName}` : "is required: Claude Code, Codex or OpenCode")
+  if (!agent.success) read.fail("Agent", agentName ? `unknown agent ${agentName}` : `is required: ${AgentName.options.join(", ")}`)
   // The option's display name, such as "Opus 5.5", becomes the ID the agent takes.
   const modelName = read.select("Model")
   const model = modelName ? modelId(modelName) : null

@@ -1,8 +1,8 @@
 # Notion Code
 
 Notion Code makes Notion the source of truth for every coding agent. You keep instructions, skills and scheduled
-automations in Notion, and every agent on the machine works from them: Claude Code, Codex, OpenCode, or the next one
-you switch to. Change the agent and keep the same quality.
+automations in Notion, and every agent on the machine works from them, whichever one you switch to. Change the agent
+and keep the same quality.
 
 Notion Code is an independent open-source project. It isn't made by or affiliated with Notion Labs. Its command is
 `ntncode`, a nod to Notion's own CLI, `ntn`. It is written for agents first: every command prints one JSON document.
@@ -86,8 +86,8 @@ which only Notion Code writes.
 | Assignee | Person | Who it runs for: each installation runs only the automations assigned to its `assignee`. One person per row, so two installations never race for the same run |
 | Project | Relation to a Projects database with a `Folder` text property | The agent runs in `~/projects/<Folder>`; empty runs it in the state's `workspace` folder |
 | Status | Status: `Disabled`, `Enabled` | Only `Enabled` runs |
-| Agent | Select: `Claude Code`, `Codex`, `OpenCode` | The agent that runs it |
-| Model, Effort | Select, such as `Opus 5.5` or `GPT-6.1 Sol`; select `Low` to `Max` | Optional; empty uses the agent's default. `Opus 5.5` runs as `claude-opus-5-5` and `GPT-6.1 Sol` as `gpt-6.1-sol`; any other option is passed as the model ID. OpenCode gets `anthropic/` or `openai/` added |
+| Agent | Select, one option per agent named in `AgentName` (`src/agents/agent.ts`) | The agent that runs it |
+| Model, Effort | Select, such as `Opus 5.5` or `GPT-6.1 Sol`; select `Low` to `Max` | Optional; empty uses the agent's default. `Opus 5.5` runs as `claude-opus-5-5` and `GPT-6.1 Sol` as `gpt-6.1-sol`; any other option is passed as the model ID. Each agent refuses a model or effort it can't run, and the sync reports it |
 | Start, Time zone, Repeat, Every, Days, Days of month, Months, Hours, Minutes, Occurrence, Limit, Until | Date; select; select; number; multi-selects; number; date | The schedule, one property per part of an iCalendar recurrence rule |
 | Runs | Relation to Runs | Every run, newest last |
 | Page body | | The prompt |
@@ -124,10 +124,9 @@ What makes an automation run:
    before it was first accepted.
 5. Two runs of the same automation never overlap; an occurrence that comes while one is running is skipped.
 
-Each run is a fresh, unattended session: Claude Code with `--permission-mode bypassPermissions`, Codex with
-`--dangerously-bypass-approvals-and-sandbox`, OpenCode with `--auto`. Its prompt wraps the row's body with what started
-the run (`<trigger scheduled_for started_at time_zone>`), the folder, the instructions page every run gets, and the
-reports of the automation's three latest runs, so no run depends on an earlier session.
+Each run is a fresh, unattended session, in each agent's own unattended mode (see `src/agents/`). Its prompt wraps the
+row's body with what started the run (`<trigger scheduled_for started_at time_zone>`), the folder, the instructions
+page every run gets, and the reports of the automation's three latest runs, so no run depends on an earlier session.
 
 When a run fails, or is cut off because the scheduler stopped, it is marked `Failed` and the config's `onFailure`
 command runs with the details on stdin and in `AUTOMATION_*` variables. An agent can raise an alarm during a run with
@@ -328,7 +327,7 @@ src/
 ├── shared/          Notion client and writer, files, markdown, processes, config, and the Module and Task types
 ├── instructions/    notion.json → AGENTS.md
 ├── skills/          the Notion Skills library → ~/.agents/skills
-├── agents/          Claude Code, Codex and OpenCode: their links, MCP checks, sign-in needs, and how to run one prompt
+├── agents/          one file per agent: its links, MCP checks, sign-in needs, settings, and how to run one prompt
 ├── scheduler/       the recurrence engine and the scheduler loop
 ├── automations/     rows → automation files, the runner, and Runs
 └── artifacts/       files → the public bucket, and their links

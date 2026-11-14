@@ -1,7 +1,7 @@
 {
   "name": "notion-code",
   "version": "0.3.0",
-  "description": "Notion Code: Notion as the source of truth for every coding agent. Syncs Notion instructions and skills to the files Claude Code, Codex and OpenCode read, and runs Notion automations on any of them.",
+  "description": "Notion Code: Notion as the source of truth for every coding agent. Syncs Notion instructions and skills to the files each agent reads, and runs Notion automations on any of them.",
   "type": "module",
   "private": true,
   "license": "MIT",
