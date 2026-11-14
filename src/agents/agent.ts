@@ -34,6 +34,19 @@ export interface AgentRunOutput {
   resume: string | null
   /** Why it failed, in one line. */
   error: string | null
+  /** What the run used, as the agent reports it; null when it reported nothing. */
+  usage: Usage | null
+}
+
+/**
+ * Tokens and cost of a run. `input` counts every prompt token, cached or not; `cached` is the part read from the
+ * prompt cache. `costUsd` is the agent's own estimate at list prices, null when it gives none.
+ */
+export interface Usage {
+  input: number
+  cached: number
+  output: number
+  costUsd: number | null
 }
 
 /** An agent: where it is, how to run one prompt headless and unattended, and what `doctor` checks. */

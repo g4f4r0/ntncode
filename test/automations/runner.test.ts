@@ -5,7 +5,7 @@ import { test } from "node:test"
 import type { Agent, AgentName, AgentRunInput } from "../../src/agents/index.ts"
 import { definitionsFolder, type Definition } from "../../src/automations/definitions.ts"
 import { automations } from "../../src/automations/index.ts"
-import { alert, duration, modelLabel, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
+import { alert, count, duration, modelLabel, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
 import { outboxFolder, readInflight, runKey, writeInflight } from "../../src/automations/runs.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
 import type { NotionWriter } from "../../src/shared/notion-writer.ts"
@@ -87,7 +87,7 @@ function stubAgent(answer: { ok: boolean; reply?: string; error?: string }) {
     modelError: () => null,
     async run(_paths, input) {
       calls.push(input)
-      return { ok: answer.ok, reply: answer.reply ?? "", session: "sess-1", resume: "claude --resume sess-1", error: answer.error ?? null }
+      return { ok: answer.ok, reply: answer.reply ?? "", session: "sess-1", resume: "claude --resume sess-1", error: answer.error ?? null, usage: answer.ok ? { input: 22_519, cached: 18_200, output: 412, costUsd: 0.0901 } : null }
     },
     checks: async () => [],
     envNeeds: () => [],
@@ -121,7 +121,7 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   assert.deepEqual([calls[0]!.directory, calls[0]!.model, calls[0]!.effort], [path.join(paths.projects, "acme"), "claude-opus-5-5", "high"])
 
   const markdown = writes.find((write) => write.kind === "markdown")!.body as string
-  assert.equal(markdown.replace(/<td>\d+ s<\/td>/u, "<td>N s</td>"), "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Claude Code</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>Opus 5.5</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>High</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>N s</td>\n</tr>\n<tr>\n<td>Started</td>\n<td>On time</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>`claude --resume sess-1`</td>\n</tr>\n</table>\n\n## Result\n\nAll good: 0 issues.\n")
+  assert.equal(markdown.replace(/<td>\d+ s<\/td>/u, "<td>N s</td>"), "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Claude Code</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>Opus 5.5</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>High</td>\n</tr>\n<tr>\n<td>Trigger</td>\n<td>Scheduled</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>N s</td>\n</tr>\n<tr>\n<td>Cost</td>\n<td>$0.09 (agent's estimate)</td>\n</tr>\n<tr>\n<td>Tokens</td>\n<td>22.5k in (18.2k cached) · 412 out</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>`sess-1`</td>\n</tr>\n<tr>\n<td>Folder</td>\n<td>`~/projects/acme`</td>\n</tr>\n</table>\n\n## Result\n\nAll good: 0 issues.\n")
   assert.match(markdown, /All good: 0 issues./u)
   const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown; Date: { date: { end: string } } } }
   assert.deepEqual(update.properties.Status, { status: { name: "Completed" } })
@@ -152,7 +152,7 @@ test("a failed run is recorded Failed, and the onFailure command gets the detail
   assert.match(fs.readFileSync(out, "utf8"), /automation "Acme daily audit" \(AUT-12\) failed: Claude Code ended with error_max_turns Run RUN-5: https:\/\/app.notion.com\/p\/run5\nAUT-12 RUN-5 failed\n/u)
   const update = writes.find((write) => write.kind === "update")!.body as { properties: { Status: unknown } }
   assert.deepEqual(update.properties.Status, { status: { name: "Failed" } })
-  assert.match(String(writes.find((write) => write.kind === "markdown")!.body), /<td>Started<\/td>\n<td>By hand<\/td>[\s\S]*<\/table>\n\n## Result\n\n\*\*Failed:\*\* Claude Code ended with error_max_turns\n$/u)
+  assert.match(String(writes.find((write) => write.kind === "markdown")!.body), /<td>Trigger<\/td>\n<td>Manual<\/td>[\s\S]*<td>Cost<\/td>\n<td>–<\/td>[\s\S]*<\/table>\n\n## Result\n\n\*\*Failed:\*\* Claude Code ended with error_max_turns\n$/u)
   const result = JSON.parse(fs.readFileSync(resultPath(paths, "req-1"), "utf8"))
   assert.deepEqual([result.status, result.run, result.error], ["Failed", "RUN-5", "Claude Code ended with error_max_turns"])
 })
@@ -247,9 +247,10 @@ test("a broken manual request is set aside and never stops the scheduled automat
 
 test("a run's length reads naturally, and a late start says how late", () => {
   assert.deepEqual([duration(27_000), duration(240_000), duration(3_900_000)], ["27 s", "4 min", "1 h 5 min"])
-  const late = renderReport({ agent: "Codex", model: null, effort: null, resume: null, trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", startedAt: "2026-11-15T07:12:00.000Z", finishedAt: "2026-11-15T07:13:00.000Z", ok: false, reply: "", error: "boom" })
-  assert.equal(late, "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Codex</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>1 min</td>\n</tr>\n<tr>\n<td>Started</td>\n<td>12 min after its scheduled time</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>–</td>\n</tr>\n</table>\n\n## Result\n\n**Failed:** boom\n", "a failed run has the same two sections and the same rows")
+  assert.deepEqual([count(412), count(1_234), count(22_519), count(1_250_000)], ["412", "1.2k", "22.5k", "1.3M"])
+  const late = renderReport({ agent: "Codex", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", startedAt: "2026-11-15T07:12:00.000Z", finishedAt: "2026-11-15T07:13:00.000Z", ok: false, reply: "", error: "boom" })
+  assert.equal(late, "## Details\n\n<table header-row=\"false\">\n<tr>\n<td>Agent</td>\n<td>Codex</td>\n</tr>\n<tr>\n<td>Model</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Effort</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Trigger</td>\n<td>Scheduled, started 12 min late</td>\n</tr>\n<tr>\n<td>Duration</td>\n<td>1 min</td>\n</tr>\n<tr>\n<td>Cost</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Tokens</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Session</td>\n<td>–</td>\n</tr>\n<tr>\n<td>Folder</td>\n<td>`~/x`</td>\n</tr>\n</table>\n\n## Result\n\n**Failed:** boom\n", "a failed run has the same two sections and the same rows")
   assert.deepEqual(["claude-opus-5-5", "claude-fable-5-2", "gpt-6.1-sol", "gpt-6.1-terra-fast", "x/custom"].map(modelLabel), ["Opus 5.5", "Fable 5.2", "GPT-6.1 Sol", "GPT-6.1 Terra Fast", "x/custom"])
-  const nested = renderReport({ agent: "Codex", model: null, effort: null, resume: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:05.000Z", ok: true, reply: "## Summary\nOK\n### Detail\nx", error: null })
+  const nested = renderReport({ agent: "Codex", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:05.000Z", ok: true, reply: "## Summary\nOK\n### Detail\nx", error: null })
   assert.match(nested, /## Result\n\n### Summary\nOK\n#### Detail\nx\n$/u, "the agent's headings sit under Result")
 })

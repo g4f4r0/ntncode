@@ -25,6 +25,15 @@ const ClaudeResult = z.looseObject({
   is_error: z.boolean(),
   result: z.string().optional(),
   session_id: z.string(),
+  total_cost_usd: z.number().optional(),
+  usage: z
+    .looseObject({
+      input_tokens: z.number().optional(),
+      output_tokens: z.number().optional(),
+      cache_creation_input_tokens: z.number().optional(),
+      cache_read_input_tokens: z.number().optional(),
+    })
+    .optional(),
 })
 
 /** `claude mcp list` lines: `name: url-or-command - ✓ Connected`. */
@@ -51,7 +60,7 @@ export const claudeCode: Agent = {
 
   async run(paths, input) {
     const claude = binary(paths)
-    if (!claude) return { ok: false, reply: "", session: null, resume: null, error: "Claude Code (claude) isn't installed" }
+    if (!claude) return { ok: false, reply: "", session: null, resume: null, usage: null, error: "Claude Code (claude) isn't installed" }
     const session = crypto.randomUUID()
     const args = ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions", "--session-id", session, "--name", input.title]
     if (input.model) args.push("--model", input.model)
@@ -66,11 +75,20 @@ export const claudeCode: Agent = {
     } catch {}
     if (!parsed) {
       const why = result.error ?? (oneLine(result.stderr || result.stdout) || `exit code ${result.code}`)
-      return { ok: false, reply: "", session, resume, error: `Claude Code returned no result: ${why}` }
+      return { ok: false, reply: "", session, resume, usage: null, error: `Claude Code returned no result: ${why}` }
     }
     const reply = parsed.result ?? ""
     const ok = !parsed.is_error && parsed.subtype === "success" && result.code === 0
-    return { ok, reply, session: parsed.session_id, resume, error: ok ? null : `Claude Code ended with ${parsed.subtype}${parsed.is_error ? " (error)" : ""}: ${oneLine(reply || result.stderr)}` }
+    const used = parsed.usage
+    const usage = used
+      ? {
+          input: (used.input_tokens ?? 0) + (used.cache_creation_input_tokens ?? 0) + (used.cache_read_input_tokens ?? 0),
+          cached: used.cache_read_input_tokens ?? 0,
+          output: used.output_tokens ?? 0,
+          costUsd: parsed.total_cost_usd ?? null,
+        }
+      : null
+    return { ok, reply, session: parsed.session_id, resume, usage, error: ok ? null : `Claude Code ended with ${parsed.subtype}${parsed.is_error ? " (error)" : ""}: ${oneLine(reply || result.stderr)}` }
   },
 
   envNeeds(paths) {

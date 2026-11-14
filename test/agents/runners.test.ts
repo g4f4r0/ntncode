@@ -32,10 +32,11 @@ function stub(name: string, output: string, exit = 0) {
 const input = (directory: string) => ({ prompt: "<automation>do it</automation>", directory, model: "claude-opus-5-5", effort: "high" as const, title: "AUT-1 Acme" })
 
 test("Claude Code runs headless and unattended, with the model, effort and a session ID of its own", async () => {
-  const fake = stub("claude", '{"type":"result","subtype":"success","is_error":false,"result":"Done: 3 fixed.","session_id":"s-1"}')
+  const fake = stub("claude", '{"type":"result","subtype":"success","is_error":false,"result":"Done: 3 fixed.","session_id":"s-1","total_cost_usd":0.25,"usage":{"input_tokens":10,"cache_creation_input_tokens":2000,"cache_read_input_tokens":5000,"output_tokens":300}}')
   try {
     const output = await claudeCode.run(fake.paths, input(fake.directory))
     assert.deepEqual([output.ok, output.reply, output.session, output.error], [true, "Done: 3 fixed.", "s-1", null])
+    assert.deepEqual(output.usage, { input: 7_010, cached: 5_000, output: 300, costUsd: 0.25 }, "input counts cache writes and reads too")
     const argv = fake.argv()
     for (const flag of ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions", "--model", "claude-opus-5-5", "--effort", "high", "--name", "AUT-1 Acme"]) assert.ok(argv.includes(flag), flag)
     assert.match(argv[argv.indexOf("--session-id") + 1]!, /^[0-9a-f-]{36}$/u)
@@ -64,11 +65,12 @@ test("Claude Code's error result, or no result at all, is a failure with the rea
 })
 
 test("Codex runs exec --json, bypassing approvals, with effort as model_reasoning_effort (max → xhigh)", async () => {
-  const events = ['{"type":"thread.started","thread_id":"t-1"}', '{"type":"item.completed","item":{"type":"agent_message","text":"first"}}', '{"type":"item.completed","item":{"type":"agent_message","text":"final"}}', '{"type":"turn.completed"}'].join("\n")
+  const events = ['{"type":"thread.started","thread_id":"t-1"}', '{"type":"item.completed","item":{"type":"agent_message","text":"first"}}', '{"type":"item.completed","item":{"type":"agent_message","text":"final"}}', '{"type":"turn.completed","usage":{"input_tokens":14579,"cached_input_tokens":8960,"output_tokens":5}}'].join("\n")
   const fake = stub("codex", events)
   try {
     const output = await codex.run(fake.paths, { ...input(fake.directory), model: "gpt-6.1-sol", effort: "max" })
     assert.deepEqual([output.ok, output.reply, output.session], [true, "final", "t-1"])
+    assert.deepEqual(output.usage, { input: 14_579, cached: 8_960, output: 5, costUsd: null }, "Codex gives tokens, no cost")
     const argv = fake.argv()
     assert.deepEqual(argv.slice(0, 2), ["exec", "--json"])
     for (const flag of ["--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "gpt-6.1-sol", 'model_reasoning_effort="xhigh"', "-"]) assert.ok(argv.includes(flag), flag)
@@ -90,11 +92,14 @@ test("OpenCode runs with --auto and the model's variant as effort; the reply is 
   const events = [
     '{"type":"text","sessionID":"ses_1","part":{"type":"text","messageID":"m1","text":"thinking out loud"}}',
     '{"type":"text","sessionID":"ses_1","part":{"type":"text","messageID":"m2","text":"Final report."}}',
+    '{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","cost":0.05,"tokens":{"input":2,"output":4,"reasoning":0,"cache":{"read":100,"write":20555}}}}',
+    '{"type":"step_finish","sessionID":"ses_1","part":{"type":"step-finish","cost":0.01,"tokens":{"input":5,"output":6,"cache":{"read":20555,"write":0}}}}',
   ].join("\n")
   const fake = stub("opencode", events)
   try {
     const output = await openCode.run(fake.paths, { ...input(fake.directory), model: "anthropic/claude-opus-5-5" })
     assert.deepEqual([output.ok, output.reply, output.session], [true, "Final report.", "ses_1"])
+    assert.deepEqual({ ...output.usage, costUsd: Number(output.usage!.costUsd!.toFixed(2)) }, { input: 41_217, cached: 20_655, output: 10, costUsd: 0.06 }, "every step adds up")
     const argv = fake.argv()
     for (const flag of ["run", "--format", "json", "--auto", "anthropic/claude-opus-5-5#high"]) assert.ok(argv.includes(flag), flag)
   } finally {

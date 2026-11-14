@@ -1,11 +1,11 @@
 import fs from "node:fs"
 import path from "node:path"
 import { z } from "zod"
-import { AGENTS, type Agent, type AgentName } from "../agents/index.ts"
+import { AGENTS, type Agent, type AgentName, type Usage } from "../agents/index.ts"
 import type { Paths } from "../shared/config.ts"
 import { expandHome } from "../shared/config.ts"
 import { writeJson } from "../shared/files.ts"
-import type { Context, Result } from "../shared/module.ts"
+import { show, type Context, type Result } from "../shared/module.ts"
 import { createNotionWriter, type NotionWriter } from "../shared/notion-writer.ts"
 import { runShell } from "../shared/process.ts"
 import { instructionsPath, type Definition } from "./definitions.ts"
@@ -29,6 +29,7 @@ export const RunResult = z.strictObject({
   report: z.string().nullable(),
   session: z.string().nullable(),
   resume: z.string().nullable(),
+  usage: z.strictObject({ input: z.number(), cached: z.number(), output: z.number(), costUsd: z.number().nullable() }).nullable().optional(),
 })
 export type RunResult = z.infer<typeof RunResult>
 
@@ -104,7 +105,10 @@ export interface ReportInput {
   agent: AgentName
   model: string | null
   effort: string | null
-  resume: string | null
+  session: string | null
+  /** The folder the agent ran in, shown with ~ for home. */
+  folder: string
+  usage: Usage | null
   trigger: "Scheduled" | "Manual"
   at: string
   startedAt: string
@@ -114,21 +118,31 @@ export interface ReportInput {
   error: string | null
 }
 
+/** 22.5k, 1.2M: a token count at a glance. */
+export function count(value: number): string {
+  if (value < 1_000) return String(value)
+  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 100_000 ? 1 : 0).replace(/\.0$/u, "")}k`
+  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/u, "")}M`
+}
+
 /**
- * Every run's page body, the same two sections whatever happened: `## Details`, a table with the same rows every
- * time, and `## Result`, the agent's final reply or, when the run failed, the error. The Title and Date already hold
- * when it was scheduled and ran.
+ * Every run's page body, the same two sections whatever happened. `## Details` is generated, with the same rows every
+ * time and "–" for a value the agent didn't report. `## Result` is the agent's final reply or, when the run failed,
+ * the error and any reply before it.
  */
 export function renderReport(input: ReportInput): string {
   const late = Date.parse(input.startedAt) - Date.parse(input.at)
-  const started = input.trigger === "Manual" ? "By hand" : late > 120_000 ? `${duration(late)} after its scheduled time` : "On time"
+  const usage = input.usage
   const rows: [string, string][] = [
     ["Agent", input.agent],
     ["Model", input.model ? modelLabel(input.model) : "–"],
     ["Effort", input.effort ? `${input.effort[0]!.toUpperCase()}${input.effort.slice(1)}` : "–"],
+    ["Trigger", input.trigger === "Scheduled" && late > 120_000 ? `Scheduled, started ${duration(late)} late` : input.trigger],
     ["Duration", duration(Date.parse(input.finishedAt) - Date.parse(input.startedAt))],
-    ["Started", started],
-    ["Session", input.resume ? `\`${input.resume}\`` : "–"],
+    ["Cost", usage?.costUsd != null ? `$${usage.costUsd.toFixed(2)} (agent's estimate)` : "–"],
+    ["Tokens", usage ? `${count(usage.input)} in (${count(usage.cached)} cached) · ${count(usage.output)} out` : "–"],
+    ["Session", input.session ? `\`${input.session}\`` : "–"],
+    ["Folder", `\`${input.folder}\``],
   ]
   const reply = input.reply.trim()
   const result = input.ok
@@ -221,6 +235,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
   let error: string | null = null
   let session: string | null = null
   let resume: string | null = null
+  let usage: Usage | null = null
   try {
     if (!fs.existsSync(definition.directory)) throw new Error(`the run's folder ${definition.directory} doesn't exist`)
     const instructions = fs.existsSync(instructionsPath(paths)) ? fs.readFileSync(instructionsPath(paths), "utf8").trim() : null
@@ -247,7 +262,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
         NTNCODE_RUN_URL: run.url,
       },
     })
-    ;({ ok, reply, error, session, resume } = output)
+    ;({ ok, reply, error, session, resume, usage } = output)
   } catch (failure) {
     error = (failure as Error).message
   }
@@ -257,7 +272,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     status: ok ? "Completed" : "Failed",
     startedAt,
     finishedAt,
-    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, resume, trigger, at: input.at, startedAt, finishedAt, ok, reply, error }),
+    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, session, folder: show(paths, definition.directory), usage, trigger, at: input.at, startedAt, finishedAt, ok, reply, error }),
   }
   let recorded = "recorded in Notion"
   try {
@@ -267,7 +282,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     recorded = `queued for Notion (${(failure as Error).message})`
   }
   clearInflight(paths, run.page)
-  report({ status: finish.status, run: run.id, url: run.url, error, report: reply || null, session, resume })
+  report({ status: finish.status, run: run.id, url: run.url, error, report: reply || null, session, resume, usage })
   if (ok) return [{ status: "completed", path: label, detail: `${run.id} completed; ${recorded}` }]
   const alerted = await alert(paths, config.onFailure, { definition, run, error: error ?? "unknown error", session })
   return [{ status: "failed", path: label, detail: `${run.id} failed: ${error}; ${recorded}; ${alerted}` }]

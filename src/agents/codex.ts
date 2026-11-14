@@ -48,6 +48,7 @@ const CodexEvent = z.looseObject({
   item: z.looseObject({ type: z.string(), text: z.string().optional() }).optional(),
   error: z.unknown().optional(),
   message: z.string().optional(),
+  usage: z.looseObject({ input_tokens: z.number().optional(), cached_input_tokens: z.number().optional(), output_tokens: z.number().optional() }).optional(),
 })
 
 /** Codex's effort levels stop at xhigh. */
@@ -62,7 +63,7 @@ export const codex: Agent = {
 
   async run(paths, input) {
     const bin = binary(paths)
-    if (!bin) return { ok: false, reply: "", session: null, resume: null, error: "Codex (codex) isn't installed" }
+    if (!bin) return { ok: false, reply: "", session: null, resume: null, usage: null, error: "Codex (codex) isn't installed" }
     const args = ["exec", "--json", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "-C", input.directory]
     if (input.model) args.push("-m", input.model)
     if (input.effort) args.push("-c", `model_reasoning_effort="${codexEffort(input.effort)}"`)
@@ -71,6 +72,7 @@ export const codex: Agent = {
     let session: string | null = null
     let reply = ""
     let failure: string | null = null
+    let usage: { input: number; cached: number; output: number; costUsd: null } | null = null
     for (const line of result.stdout.split("\n")) {
       if (!line.trim()) continue
       let event: z.infer<typeof CodexEvent>
@@ -83,12 +85,19 @@ export const codex: Agent = {
       }
       if (event.type === "thread.started" && event.thread_id) session = event.thread_id
       if (event.type === "item.completed" && event.item?.type === "agent_message") reply = event.item.text ?? ""
+      // Codex counts cached tokens inside input_tokens, and gives no cost.
+      if (event.type === "turn.completed" && event.usage) {
+        usage ??= { input: 0, cached: 0, output: 0, costUsd: null }
+        usage.input += event.usage.input_tokens ?? 0
+        usage.cached += event.usage.cached_input_tokens ?? 0
+        usage.output += event.usage.output_tokens ?? 0
+      }
       if (event.type === "turn.failed" || event.type === "error") failure = oneLine(event.message ?? JSON.stringify(event.error ?? event))
     }
     const resume = session ? `cd ${input.directory} && codex resume ${session}` : null
     const ok = result.code === 0 && !failure && !!session
     const stderr = oneLine(result.stderr.split("\n").filter((line) => !/rmcp::transport/u.test(line)).join(" "))
-    return { ok, reply, session, resume, error: ok ? null : `Codex failed: ${failure ?? result.error ?? (stderr || `exit code ${result.code}`)}` }
+    return { ok, reply, session, resume, usage, error: ok ? null : `Codex failed: ${failure ?? result.error ?? (stderr || `exit code ${result.code}`)}` }
   },
 
   envNeeds(paths) {

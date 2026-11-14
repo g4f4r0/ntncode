@@ -34,7 +34,15 @@ export function parseOpenCodeMcp(output: string): McpServer[] {
 const OpenCodeEvent = z.looseObject({
   type: z.string(),
   sessionID: z.string().optional(),
-  part: z.looseObject({ type: z.string(), messageID: z.string().optional(), text: z.string().optional() }).optional(),
+  part: z
+    .looseObject({
+      type: z.string(),
+      messageID: z.string().optional(),
+      text: z.string().optional(),
+      cost: z.number().optional(),
+      tokens: z.looseObject({ input: z.number().optional(), output: z.number().optional(), cache: z.looseObject({ read: z.number().optional(), write: z.number().optional() }).optional() }).optional(),
+    })
+    .optional(),
   error: z.unknown().optional(),
 })
 
@@ -79,12 +87,12 @@ export const openCode: Agent = {
 
   async run(paths, input) {
     const bin = binary(paths)
-    if (!bin) return { ok: false, reply: "", session: null, resume: null, error: "OpenCode (opencode) isn't installed" }
+    if (!bin) return { ok: false, reply: "", session: null, resume: null, usage: null, error: "OpenCode (opencode) isn't installed" }
     // A run gets a private OpenCode (--standalone), because the background service ignores the caller's folder. A
     // private OpenCode loads every plugin, and opencode-automations has no lock, so it could fire its own automations
     // a second time: refuse until it's removed.
     if (retiredPlugins(paths).includes("opencode-automations")) {
-      return { ok: false, reply: "", session: null, resume: null, error: "OpenCode runs need opencode-automations removed from ~/.config/opencode/opencode.jsonc first; a private OpenCode would also start its scheduler" }
+      return { ok: false, reply: "", session: null, resume: null, usage: null, error: "OpenCode runs need opencode-automations removed from ~/.config/opencode/opencode.jsonc first; a private OpenCode would also start its scheduler" }
     }
     const args = ["run", "--standalone", "--format", "json", "--auto", "--title", input.title]
     // OpenCode sets effort as the model's variant, so it needs a model.
@@ -95,6 +103,7 @@ export const openCode: Agent = {
     const texts = new Map<string, string[]>()
     let lastMessage: string | null = null
     let failure: string | null = null
+    let usage: { input: number; cached: number; output: number; costUsd: number | null } | null = null
     for (const line of result.stdout.split("\n")) {
       if (!line.trim()) continue
       let event: z.infer<typeof OpenCodeEvent>
@@ -111,11 +120,20 @@ export const openCode: Agent = {
         lastMessage = event.part.messageID
       }
       if (event.type === "error") failure = oneLine(JSON.stringify(event.error ?? event))
+      // Each step reports its own tokens and cost; OpenCode counts cache reads and writes apart from input.
+      if (event.type === "step_finish" && event.part?.tokens) {
+        const tokens = event.part.tokens
+        usage ??= { input: 0, cached: 0, output: 0, costUsd: null }
+        usage.input += (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0)
+        usage.cached += tokens.cache?.read ?? 0
+        usage.output += tokens.output ?? 0
+        if (event.part.cost !== undefined) usage.costUsd = (usage.costUsd ?? 0) + event.part.cost
+      }
     }
     const reply = lastMessage ? texts.get(lastMessage)!.join("\n") : ""
     const resume = session ? `cd ${input.directory} && opencode --session ${session}` : null
     const ok = result.code === 0 && !failure && !!session
-    return { ok, reply, session, resume, error: ok ? null : `OpenCode failed: ${failure ?? result.error ?? (oneLine(result.stderr) || `exit code ${result.code}`)}` }
+    return { ok, reply, session, resume, usage, error: ok ? null : `OpenCode failed: ${failure ?? result.error ?? (oneLine(result.stderr) || `exit code ${result.code}`)}` }
   },
 
   envNeeds(paths) {
