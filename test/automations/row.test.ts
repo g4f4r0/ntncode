@@ -16,7 +16,7 @@ function next(text: string, after: string, count: number, zone = "Europe/Madrid"
   return nextOccurrences(parseSchedule(text), Temporal.Instant.from(after), count).map((at) => wallClock(at.toZonedDateTimeISO(zone)))
 }
 
-// Every example in the automations-operations skill's references/schedules.md, as properties → rule → runs.
+// Every example in the automations skill's references/schedules.md, as properties → rule → runs.
 test("the skill's schedule examples build the expected rules and run at the expected local times", () => {
   const berlin = "2026-11-20T09:00:00.000+01:00"
   assert.equal(schedule({ repeat: "Once", start: berlin, zone: "Europe/Berlin" }), "DTSTART;TZID=Europe/Berlin:20261120T090000")
