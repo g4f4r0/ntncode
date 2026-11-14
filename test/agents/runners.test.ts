@@ -112,8 +112,8 @@ test("OpenCode runs with --auto and the model's variant as effort; the reply is 
   assert.equal(openCodeModel("claude-opus-5-5"), "anthropic/claude-opus-5-5", "the Model list's names work for OpenCode too")
   assert.equal(openCodeModel("gpt-6.1-sol"), "openai/gpt-6.1-sol")
   assert.equal(openCodeModel("xai/grok-5"), "xai/grok-5")
-  assert.match(openCode.modelError("grok-5")!, /provider\/model/u)
-  assert.equal(openCode.modelError("claude-opus-5-5"), null)
+  assert.match(openCode.settingsError("grok-5", null)!, /provider\/model/u)
+  assert.equal(openCode.settingsError("claude-opus-5-5", "high"), null)
 })
 
 test("each agent's MCP list is read, and a missing or signed-out server is an error with its fix", () => {
@@ -138,20 +138,6 @@ test("each agent's MCP list is read, and a missing or signed-out server is an er
       ["Codex MCP github", false, "add github"],
     ],
   )
-})
-
-test("OpenCode refuses to run while opencode-automations is configured, so nothing fires twice", async () => {
-  const fake = stub("opencode", "")
-  try {
-    fs.mkdirSync(path.join(fake.paths.home, ".config/opencode"), { recursive: true })
-    fs.writeFileSync(path.join(fake.paths.home, ".config/opencode/opencode.jsonc"), '{\n  // opencode-automations was here\n  "plugins": [{ "package": "/x/opencode-automations" }]\n}\n')
-    const output = await openCode.run(fake.paths, input(fake.directory))
-    assert.equal(output.ok, false)
-    assert.match(output.error!, /opencode-automations removed/u)
-    assert.equal(fs.existsSync(path.join(fake.paths.home, "record.argv")), false, "never started")
-  } finally {
-    fake.restore()
-  }
 })
 
 test("each agent names the variables it needs to sign in unattended, from its own config", () => {

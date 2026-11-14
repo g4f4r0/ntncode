@@ -57,8 +57,8 @@ export interface Agent {
   name: AgentName
   /** The executable, or null when it isn't installed. */
   binary(paths: Paths): string | null
-  /** Why this model can't run on the agent, or null when it can. */
-  modelError(model: string | null): string | null
+  /** Why the agent can't run this model and effort, led by the property to fix (`Model: …`), or null when it can. */
+  settingsError(model: string | null, effort: Effort | null): string | null
   run(paths: Paths, input: AgentRunInput): Promise<AgentRunOutput>
   /** `required` are the MCP servers every agent must have, from the config. */
   checks(paths: Paths, required: string[]): Promise<Check[]>

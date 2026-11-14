@@ -120,6 +120,14 @@ test("an invalid row is reported with every problem and doesn't run; a valid ear
   assert.equal(readDefinitions(paths).definitions.length, 1)
 })
 
+test("each agent refuses the model and effort it can't run, under the property to fix", async () => {
+  const sync = async (row: RowInput) => (await syncAutomations(notionWith([row]).notion, setup(), config, { now: at("2026-11-14T09:00:00Z") }))[0]!
+  assert.match((await sync({ agent: "OpenCode", effort: "High" })).detail, /Effort: OpenCode sets effort through the model, so set Model too/u)
+  assert.match((await sync({ agent: "OpenCode", model: "grok-5" })).detail, /Model: OpenCode needs provider\/model/u)
+  assert.match((await sync({ agent: "Codex", model: "gpt 6" })).detail, /Model: a Codex model is one word/u)
+  for (const row of [{ agent: "OpenCode", model: "claude-opus-5-5" }, { agent: "Codex", effort: "High" }] as RowInput[]) assert.equal((await sync(row)).status, "written", JSON.stringify(row))
+})
+
 test("a project without a Folder, or one missing on disk, an empty prompt and two owners are refused", async () => {
   const paths = tempHome()
   const missing = await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })

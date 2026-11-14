@@ -61,7 +61,6 @@ export function explainFailure(error: string, agent: string): string {
     [/usage limit|rate limit|rate_limit|\b429\b|overloaded|quota/iu, `The model provider refused ${agent}'s requests because of a usage or rate limit. It usually works again on the next run; if it keeps failing, check the provider's limits.`],
     [/isn't installed/iu, `${agent} isn't installed on this machine, so the run couldn't start. Install it, or pick another agent for this automation.`],
     [/folder .* doesn't exist/iu, "The run's folder doesn't exist on this machine, so the agent didn't start. Fix the project's Folder in Notion, or create the folder."],
-    [/opencode-automations removed/iu, "OpenCode runs are paused while OpenCode's own automations plugin is installed, so nothing runs twice. Remove opencode-automations from OpenCode's config."],
     [/returned no result/iu, `${agent} exited without a final result, so the run can't tell what it did. The details below show how it ended.`],
   ]
   for (const [pattern, sentence] of known) if (pattern.test(error)) return sentence
