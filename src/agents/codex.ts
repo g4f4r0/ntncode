@@ -95,7 +95,8 @@ export const codex: Agent = {
         usage.output += event.usage.output_tokens ?? 0
       }
       if (event.type === "turn.failed" || event.type === "error") {
-        failure = oneLine(event.message ?? JSON.stringify(event.error ?? event))
+        const message = event.message ?? (event.error as { message?: unknown } | undefined)?.message
+        failure = oneLine(typeof message === "string" ? message : JSON.stringify(event.error ?? event))
         failedEvent = line
       }
     }

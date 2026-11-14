@@ -79,11 +79,12 @@ test("Codex runs exec --json, bypassing approvals, with effort as model_reasonin
   } finally {
     fake.restore()
   }
-  const failed = stub("codex", ['{"type":"thread.started","thread_id":"t"}', '{"type":"turn.failed","message":"usage limit"}'].join("\n"))
+  const failed = stub("codex", ['{"type":"thread.started","thread_id":"t"}', '{"type":"turn.failed","error":{"message":"usage limit"}}'].join("\n"))
   try {
     const output = await codex.run(failed.paths, input(failed.directory))
     assert.equal(output.ok, false)
-    assert.match(output.error!, /usage limit/u)
+    assert.equal(output.error, "Codex failed: usage limit", "the message itself, not the JSON around it")
+    assert.match(output.details!, /event: \{"type":"turn\.failed"/u)
   } finally {
     failed.restore()
   }

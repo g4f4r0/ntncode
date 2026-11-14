@@ -122,7 +122,9 @@ export const openCode: Agent = {
         lastMessage = event.part.messageID
       }
       if (event.type === "error") {
-        failure = oneLine(JSON.stringify(event.error ?? event))
+        const error = event.error as { message?: unknown; data?: { message?: unknown } } | undefined
+        const message = error?.data?.message ?? error?.message
+        failure = oneLine(typeof message === "string" ? message : JSON.stringify(event.error ?? event))
         failedEvent = line
       }
       // Each step reports its own tokens and cost; OpenCode counts cache reads and writes apart from input.

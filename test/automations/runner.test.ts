@@ -268,6 +268,7 @@ test("a failure explains itself in plain words, then shows the exact error and c
   assert.match(page, /```\n\nThe agent's last reply:\n\nI got halfway\.\n$/u)
   assert.doesNotMatch(page, /sk-abc|ntn_123/u, "no secret reaches Notion")
   assert.equal(redact("key=supersecretvalue1 ok", { MY_API_KEY: "supersecretvalue1" }), "key=<redacted> ok", "a secret from the environment is masked by its value")
+  assert.match(explainFailure("Codex failed: unknown provider for model gpt-9-missing", "Codex"), /doesn't know the model/u)
   assert.equal(explainFailure("Notion Code's scheduler stopped during the run", "Codex"), "Notion Code's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual.")
   const fenced = renderReport({ agent: "Codex", model: null, effort: null, session: null, folder: "~/x", usage: null, trigger: "Manual", at: "", startedAt: "2026-11-15T07:00:00.000Z", finishedAt: "2026-11-15T07:00:01.000Z", ok: false, reply: "", error: "x", details: "output with ``` inside" })
   assert.match(fenced, /````text\nx\n\noutput with ``` inside\n````/u, "a fence inside the details can't close the block")
