@@ -37,6 +37,11 @@ export const RUN_PROPERTIES = {
   Trigger: "select",
   Status: "status",
   Date: "date",
+  Agent: "select",
+  Model: "select",
+  Effort: "select",
+  Session: "rich_text",
+  Folder: "rich_text",
   Duration: "number",
   Cost: "number",
   "Input tokens": "number",
@@ -52,7 +57,12 @@ export const REQUIRED_OPTIONS = {
     Effort: ["Low", "Medium", "High", "Xhigh", "Max"],
     Repeat: ["Once", "Minutely", "Hourly", "Daily", "Weekly", "Monthly", "Yearly"],
   },
-  runs: { Trigger: ["Scheduled", "Manual"], Status: ["In progress", "Completed", "Failed"] },
+  runs: {
+    Trigger: ["Scheduled", "Manual"],
+    Status: ["In progress", "Completed", "Failed"],
+    Agent: AgentName.options as readonly string[],
+    Effort: ["Low", "Medium", "High", "Xhigh", "Max"],
+  },
 } as const
 
 const REPEAT = { Minutely: "MINUTELY", Hourly: "HOURLY", Daily: "DAILY", Weekly: "WEEKLY", Monthly: "MONTHLY", Yearly: "YEARLY" } as const

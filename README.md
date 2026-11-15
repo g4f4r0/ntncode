@@ -100,8 +100,11 @@ which only Notion Code writes.
 | Trigger | Select: `Scheduled`, `Manual` | |
 | Status | Status: `In progress`, `Completed`, `Failed` | |
 | Date | Date range | From start to finish |
+| Agent, Model, Effort | Selects | What ran it, set when the run starts. Model shows the option name, such as `Opus 5.5`; empty for the agent's default |
+| Folder | Text | Where it ran, with `~` for home, set when the run starts |
+| Session | Text | The agent's session ID, to resume it; empty when there was none |
 | Duration, Cost, Input tokens, Cached tokens, Output tokens | Numbers | Seconds, the agent's cost estimate, and its token counts, exact, for views that sum or chart them; empty when the agent reports none |
-| Page body | | `## Details`, the same table every time, with no header row (Agent, Model, Effort, Trigger, Duration, Cost, Tokens, Session, Folder), and `## Result`, the agent's final reply or the error |
+| Page body | | The agent's final reply, as written. A failed run says what happened in plain words, then the exact error in a code block, then any reply before it |
 
 `ntncode doctor` checks that both data sources have every property, with the right type and options.
 

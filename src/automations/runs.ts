@@ -8,6 +8,15 @@ import type { Notion, NotionPage } from "../shared/notion.ts"
 import type { NotionWriter } from "../shared/notion-writer.ts"
 import { Reader } from "./row.ts"
 
+/** A model ID as the Notion option names it: claude-opus-5-5 is Opus 5.5, gpt-6.1-sol is GPT-6.1 Sol. */
+export function modelLabel(id: string): string {
+  const claude = id.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)$/u)
+  if (claude) return `${claude[1]![0]!.toUpperCase()}${claude[1]!.slice(1)} ${claude[2]}.${claude[3]}`
+  const gpt = id.match(/^gpt-([\d.]+)((?:-[a-z]+)*)$/u)
+  if (gpt) return `GPT-${gpt[1]}${gpt[2]!.split("-").filter(Boolean).map((word) => ` ${word[0]!.toUpperCase()}${word.slice(1)}`).join("")}`
+  return id
+}
+
 /** A run's Title: the automation's ID and the minute it was scheduled for (or started, by hand), in UTC. */
 export function runKey(id: string, at: string): string {
   return `${id}@${new Date(at).toISOString().slice(0, 16)}Z`
@@ -43,7 +52,8 @@ export class Runs {
     return page ? this.toRow(page) : null
   }
 
-  async start(input: { key: string; automation: string; trigger: "Scheduled" | "Manual"; startedAt: string }): Promise<RunRow> {
+  /** The row, with what runs it and where, so a run in progress already shows them. */
+  async start(input: { key: string; automation: string; trigger: "Scheduled" | "Manual"; startedAt: string; agent: AgentName; model: string | null; effort: string | null; folder: string }): Promise<RunRow> {
     const page = await this.writer.createPage({
       parent: { data_source_id: this.dataSource },
       properties: {
@@ -52,18 +62,23 @@ export class Runs {
         Trigger: { select: { name: input.trigger } },
         Status: { status: { name: "In progress" } },
         Date: { date: { start: input.startedAt } },
+        Agent: { select: { name: input.agent } },
+        Model: { select: input.model ? { name: modelLabel(input.model) } : null },
+        Effort: { select: input.effort ? { name: `${input.effort[0]!.toUpperCase()}${input.effort.slice(1)}` } : null },
+        Folder: { rich_text: [{ text: { content: input.folder } }] },
       },
     })
     return this.toRow(page)
   }
 
-  /** The report, the status, the times, and the numbers views can sum and chart: cost, tokens, seconds. */
+  /** The reply as the page body; the status, the times, the session, and the numbers views can sum and chart. */
   async finish(run: string, input: Finish): Promise<void> {
     await this.writer.replaceMarkdown(run, input.markdown)
     const usage = input.usage ?? null
     await this.writer.updatePage(run, {
       properties: {
         Status: { status: { name: input.status } },
+        Session: { rich_text: input.session ? [{ text: { content: input.session } }] : [] },
         Date: { date: { start: input.startedAt, end: input.finishedAt } },
         Duration: { number: Math.max(0, Math.round((Date.parse(input.finishedAt) - Date.parse(input.startedAt)) / 1000)) },
         Cost: { number: usage?.costUsd != null ? Math.round(usage.costUsd * 10_000) / 10_000 : null },
@@ -106,6 +121,8 @@ export interface Finish {
   startedAt: string
   finishedAt: string
   markdown: string
+  /** The agent's session ID; null or missing when there was none. */
+  session?: string | null
   /** What the agent reported using; null or missing when it reported nothing. */
   usage?: { input: number; cached: number; output: number; costUsd: number | null } | null
 }
@@ -119,7 +136,7 @@ export const Inflight = z.strictObject({
   automation: z.string(),
   automationUrl: z.string(),
   title: z.string(),
-  /** What ran, so a run cut off by a stopped scheduler gets the same page as any other. */
+  /** What ran, so a run cut off by a stopped scheduler explains its failure like any other. */
   agent: AgentName,
   model: z.string().nullable(),
   effort: z.string().nullable(),
@@ -142,6 +159,7 @@ export const Outbox = z.strictObject({
     startedAt: z.string(),
     finishedAt: z.string(),
     markdown: z.string(),
+    session: z.string().nullable().optional(),
     usage: z.strictObject({ input: z.number(), cached: z.number(), output: z.number(), costUsd: z.number().nullable() }).nullable().optional(),
   }),
 })
