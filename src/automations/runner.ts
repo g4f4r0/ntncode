@@ -77,42 +77,8 @@ export function renderPrompt(input: {
   return lines.join("\n")
 }
 
-/** The run's page body: who ran it and how to open the session, then the agent's final reply. */
-/** A length of time for people: 27 s, 4 min, 1 h 5 min. */
-export function duration(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000))
-  if (seconds < 60) return `${seconds} s`
-  const minutes = Math.round(seconds / 60)
-  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ""}`
-}
-
-/** A model ID as the Notion option names it: claude-opus-5-5 is Opus 5.5, gpt-6.1-sol is GPT-6.1 Sol. */
-export function modelLabel(id: string): string {
-  const claude = id.match(/^claude-(opus|sonnet|haiku|fable)-(\d+)-(\d+)$/u)
-  if (claude) return `${claude[1]![0]!.toUpperCase()}${claude[1]!.slice(1)} ${claude[2]}.${claude[3]}`
-  const gpt = id.match(/^gpt-([\d.]+)((?:-[a-z]+)*)$/u)
-  if (gpt) return `GPT-${gpt[1]}${gpt[2]!.split("-").filter(Boolean).map((word) => ` ${word[0]!.toUpperCase()}${word.slice(1)}`).join("")}`
-  return id
-}
-
-/** A table cell's text on one line, with no markup that could close the cell. */
-const cell = (text: string) => text.replace(/\s*\n\s*/gu, " ").replace(/<(?=\/?t[dr]>|\/?table)/gu, "&lt;")
-
-/** The agent's reply under `## Result`: its own headings move down a level, so the page keeps one structure. */
-const nest = (reply: string) => reply.replace(/^(#{1,5}) /gmu, "#$1 ")
-
 export interface ReportInput {
   agent: AgentName
-  model: string | null
-  effort: string | null
-  session: string | null
-  /** The folder the agent ran in, shown with ~ for home. */
-  folder: string
-  usage: Usage | null
-  trigger: "Scheduled" | "Manual"
-  at: string
-  startedAt: string
-  finishedAt: string
   ok: boolean
   reply: string
   error: string | null
@@ -127,43 +93,17 @@ function codeBlock(text: string): string {
   return `${fence}text\n${text}\n${fence}`
 }
 
-/** 22.5k, 1.2M: a token count at a glance. */
-export function count(value: number): string {
-  if (value < 1_000) return String(value)
-  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 100_000 ? 1 : 0).replace(/\.0$/u, "")}k`
-  return `${(value / 1_000_000).toFixed(1).replace(/\.0$/u, "")}M`
-}
-
 /**
- * Every run's page body, the same two sections whatever happened. `## Details` is generated, with the same rows every
- * time and "–" for a value the agent didn't report. `## Result` is the agent's final reply or, when the run failed,
- * the error and any reply before it.
+ * A run's page body: the agent's final reply, as written. Who ran it, where, how long and at what cost are the row's
+ * properties. A failed run says what happened in plain words, then the exact error and the agent's own context in a
+ * code block, then any reply the agent gave before it failed.
  */
 export function renderReport(input: ReportInput): string {
-  const late = Date.parse(input.startedAt) - Date.parse(input.at)
-  const usage = input.usage
-  const rows: [string, string][] = [
-    ["Agent", input.agent],
-    ["Model", input.model ? modelLabel(input.model) : "–"],
-    ["Effort", input.effort ? `${input.effort[0]!.toUpperCase()}${input.effort.slice(1)}` : "–"],
-    ["Trigger", input.trigger === "Scheduled" && late > 120_000 ? `Scheduled, started ${duration(late)} late` : input.trigger],
-    ["Duration", duration(Date.parse(input.finishedAt) - Date.parse(input.startedAt))],
-    ["Cost", usage?.costUsd != null ? `$${usage.costUsd.toFixed(2)}` : "–"],
-    ["Tokens", usage ? `${count(usage.input)} in, ${count(usage.cached)} cached, ${count(usage.output)} out` : "–"],
-    ["Session", input.session ? `\`${input.session}\`` : "–"],
-    ["Folder", `\`${input.folder}\``],
-  ]
-  const reply = input.reply.trim()
-  // A failure says what happened and what to do in plain words, then gives the exact error and the agent's own
-  // context in a code block, then any reply the agent gave before it failed.
+  const reply = cut(input.reply.trim(), REPORT_CHARS)
+  if (input.ok) return `${reply || "The agent finished without a final reply."}\n`
   const error = input.error ?? "unknown error"
   const raw = [redact(error), input.details ? redact(input.details) : null].filter(Boolean).join("\n\n")
-  const result = input.ok
-    ? reply ? nest(cut(reply, REPORT_CHARS)) : "The agent finished without a final reply."
-    : [`**Failed:** ${explainFailure(error, input.agent)}`, codeBlock(raw), ...(reply ? ["The agent's last reply:", nest(cut(reply, REPORT_CHARS))] : [])].join("\n\n")
-  // Notion's table markup, because a markdown table always has a header row and this one is name and value pairs.
-  const table = ['<table header-row="false">', ...rows.map(([name, value]) => `<tr>\n<td>${name}</td>\n<td>${cell(value)}</td>\n</tr>`), "</table>"].join("\n")
-  return `## Details\n\n${table}\n\n## Result\n\n${result}\n`
+  return `${[`**Failed:** ${explainFailure(error, input.agent)}`, codeBlock(raw), ...(reply ? ["The agent's last reply:", reply] : [])].join("\n\n")}\n`
 }
 
 /**
@@ -233,7 +173,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
       const done = await runs.find(key)
       if (done) return [{ status: "skipped", path: label, detail: `${key} already ran as ${done.id}; not run again` }]
     }
-    run = await runs.start({ key, automation: definition.page, trigger, startedAt })
+    run = await runs.start({ key, automation: definition.page, trigger, startedAt, agent: definition.agent, model: definition.model, effort: definition.effort, folder: show(paths, definition.directory) })
   } catch (error) {
     const message = `couldn't record the run in Notion: ${(error as Error).message}`
     report({ status: "Failed", error: message })
@@ -290,7 +230,8 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     status: ok ? "Completed" : "Failed",
     startedAt,
     finishedAt,
-    markdown: renderReport({ agent: definition.agent, model: definition.model, effort: definition.effort, session, folder: show(paths, definition.directory), usage, trigger, at: input.at, startedAt, finishedAt, ok, reply, error, details }),
+    markdown: renderReport({ agent: definition.agent, ok, reply, error, details }),
+    session,
     usage,
   }
   let recorded = "recorded in Notion"

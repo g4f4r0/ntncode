@@ -94,7 +94,7 @@ export const automations: Module = {
         const finishedAt = new Date().toISOString()
         const error = "Notion Code's scheduler stopped during the run (a restart or a crash), so the agent was stopped too"
         try {
-          const markdown = renderReport({ agent: inflight.agent, model: inflight.model, effort: inflight.effort, session: null, folder: show(context.paths, inflight.directory), usage: null, trigger: inflight.trigger, at: inflight.at, startedAt: inflight.startedAt, finishedAt, ok: false, reply: "", error: `${error}.`, details: `run ${inflight.id} started ${inflight.startedAt}\nscheduler started again ${finishedAt}; no agent process left to report` })
+          const markdown = renderReport({ agent: inflight.agent, ok: false, reply: "", error: `${error}.`, details: `run ${inflight.id} started ${inflight.startedAt}\nscheduler started again ${finishedAt}; no agent process left to report` })
           await runs.finish(inflight.run, { status: "Failed", startedAt: inflight.startedAt, finishedAt, markdown })
         } catch (failure) {
           results.push({ status: "failed", path: inflight.id, detail: `couldn't mark ${inflight.id} Failed: ${(failure as Error).message}` })
