@@ -5,7 +5,7 @@ import { test } from "node:test"
 import type { Agent, AgentName, AgentRunInput } from "../../src/agents/index.ts"
 import { definitionsFolder, type Definition } from "../../src/automations/definitions.ts"
 import { automations } from "../../src/automations/index.ts"
-import { explainFailure, redact } from "../../src/agents/index.ts"
+import { AGENTS, explainFailure, redact } from "../../src/agents/index.ts"
 import { alert, renderPrompt, renderReport, resultPath, runAutomation } from "../../src/automations/runner.ts"
 import { modelLabel, outboxFolder, readInflight, runKey, writeInflight } from "../../src/automations/runs.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
@@ -93,10 +93,55 @@ function stubAgent(answer: { ok: boolean; reply?: string; error?: string }) {
     checks: async () => [],
     envNeeds: () => [],
   }
-  return { agents: { "Claude Code": agent, Codex: agent, OpenCode: agent } as Record<AgentName, Agent>, calls }
+  return { agents: { "Claude Code": agent, Codex: agent, OpenCode: agent, "T3 Code": agent, Zeron: agent } as Record<AgentName, Agent>, calls }
 }
 
 const config = (extra = {}) => ({ assignee: OWNER, automations: { automations: "a", runs: RUNS, instructions: null }, ...extra })
+
+test("hosted sessions are persisted before execution and interrupted after a bridge failure", async () => {
+  const paths = tempHome()
+  const { notion, writer } = runsNotion()
+  const def = definition(paths, { agent: "Zeron", model: null, effort: null })
+  const fake = stubAgent({ ok: false, error: "bridge disconnected" })
+  let cancelled: string | null = null
+  fake.agents.Zeron.run = async (_paths, input) => {
+    input.onSession!("hosted-chat")
+    assert.equal(readInflight(paths)[0]?.session, "hosted-chat", "identity reaches disk before the app receives its prompt")
+    throw new Error("bridge disconnected")
+  }
+  fake.agents.Zeron.cancel = async (_paths, session) => { cancelled = session }
+  const result = await runAutomation({ context: testContext(paths, notion, config()), definition: def, trigger: "Manual", at: new Date().toISOString(), request: "request", writer, agents: fake.agents })
+  assert.equal(result[0]?.status, "failed")
+  assert.equal(cancelled, "hosted-chat")
+  assert.equal(readInflight(paths).length, 0)
+})
+
+test("failed hosted cancellation blocks new runs and the scheduler retries cleanup", async () => {
+  const paths = tempHome()
+  const { notion, writer } = runsNotion()
+  const def = definition(paths, { agent: "Zeron", model: null, effort: null })
+  const fake = stubAgent({ ok: false, error: "bridge disconnected" })
+  fake.agents.Zeron.run = async (_paths, input) => {
+    input.onSession!("hosted-chat")
+    return { ok: false, reply: "", session: "hosted-chat", resume: null, error: "bridge disconnected", usage: null }
+  }
+  fake.agents.Zeron.cancel = async () => { throw new Error("engine unavailable") }
+  const context = testContext(paths, notion, config())
+  await runAutomation({ context, definition: def, trigger: "Manual", at: new Date().toISOString(), request: "request", writer, agents: fake.agents })
+  assert.equal(readInflight(paths)[0]?.cleanupPending, true)
+  fs.writeFileSync(path.join(definitionsFolder(paths), `${def.id}.json`), JSON.stringify(def))
+  assert.deepEqual(automations.tasks(context).map((task) => task.id), ["automations.sync"])
+  const saved = AGENTS.Zeron
+  let cancelled: string | null = null
+  AGENTS.Zeron = { ...fake.agents.Zeron, cancel: async (_paths, session) => { cancelled = session } }
+  try {
+    const recovered = await automations.serve!.tick!(context)
+    assert.equal(recovered[0]?.status, "completed")
+    assert.equal(cancelled, "hosted-chat")
+    assert.equal(readInflight(paths).length, 0)
+    assert.ok(automations.tasks(context).some((task) => task.id === def.id))
+  } finally { AGENTS.Zeron = saved }
+})
 
 test("a scheduled run records In progress, runs the agent with the wrapped prompt, then records the report as Completed", async () => {
   const paths = tempHome()

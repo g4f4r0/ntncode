@@ -136,6 +136,43 @@ command runs with the details on stdin and in `AUTOMATION_*` variables. An agent
 `ntncode alert "<message>"`, which goes through the same command. A Runs update Notion refuses waits in an outbox and
 is retried every tick.
 
+### T3 Code and Zeron
+
+Set an automation's Agent to `T3 Code` or `Zeron` to keep its session in that app. Both run on the same Linux server
+as Notion Code, through an already-running local daemon. Neither adapter starts a daemon, connects to another device,
+or changes existing automation assignments. Install `t3` or `zeron` on the scheduler's PATH (or in `~/.local/bin`),
+start its service, and configure its model provider and MCP tools in that app before running the automation.
+
+T3 Code uses its authenticated local HTTP MCP endpoint. It creates temporary client sessions through T3's local
+auth control plane and PKCE OAuth, keeps credentials in memory, and revokes the sessions when it disconnects.
+A metadata-only ownership ledger under the state directory lets the next connection revoke credentials left by a
+crashed process; it contains session IDs and random labels, never tokens. Active concurrent connections are preserved. T3
+retains OAuth client registration metadata because its current API has no registration deletion operation. The
+adapter finds or registers the exact project folder, creates an idle thread, records its ID, then sends the prompt.
+It explicitly requests unattended execution and waits for the run and its delegated work to settle.
+
+Zeron uses `zeron mcp` over stdin/stdout. It creates a standalone chat on the engine's local device, verifies its
+working directory, records its ID, then sends the prompt. With Model empty, it picks a connected local harness,
+preferring Claude Code and then Codex. A `gpt-*` model selects Codex and a `claude-*` model selects Claude Code.
+For another harness, use `harness/model`, such as `pi/anthropic/claude-fable-5-2`.
+
+T3 Code accepts its catalog's model ID, or `providerInstanceId/model` when selection would otherwise be ambiguous.
+With Model empty, it keeps the project's or app's default. T3 Code requires Model when Effort is set; both adapters
+reject an effort the selected model or harness does not offer. Existing Notion labels such as `GPT-6.1 Sol` still
+map to their model IDs. Add an exact custom ID as a Model option when needed.
+
+Hosted agents inherit their app daemon's environment. Notion Code checks that the daemon does not carry its
+`NOTION_ACCESS_TOKEN`; this environment check currently requires Linux. The prompt supplies the automation's
+non-secret run context as a shell prefix for `ntncode alert`. Provider credentials belong to the app's service,
+rather than Notion Code's `agents.env`. `doctor` checks the local daemon and reports effective provider MCP
+connections as unverified when the app does not expose them.
+
+A run fails if it needs input, loses reliable status, or does not complete within an hour. Scheduler shutdown
+interrupts hosted runs. A restart uses their saved session IDs to stop unfinished execution before another occurrence
+can start; an unconfirmed cancellation keeps that automation blocked and is retried. Session IDs and final replies
+are recorded in Runs. These app interfaces do not expose token usage or cost, so those properties stay empty.
+T3 threads can be inspected with `t3 thread show <session>`; Zeron chats remain in its app and can be read through MCP.
+
 ## How artifacts work
 
 Any agent with a shell publishes, finds and deletes artifacts the same way:

@@ -50,6 +50,8 @@ export interface Context {
   token: string
   dryRun: boolean
   now: Date
+  /** Scheduler shutdown; hosted agents interrupt the session their app owns. */
+  signal?: AbortSignal
 }
 
 export type Status =

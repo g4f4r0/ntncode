@@ -9,7 +9,7 @@ import { show, type Context, type Result } from "../shared/module.ts"
 import { createNotionWriter, type NotionWriter } from "../shared/notion-writer.ts"
 import { runShell } from "../shared/process.ts"
 import { instructionsPath, type Definition } from "./definitions.ts"
-import { clearInflight, queueOutbox, runKey, Runs, writeInflight, type Finish } from "./runs.ts"
+import { clearInflight, queueOutbox, runKey, Runs, writeInflight, type Finish, type Inflight } from "./runs.ts"
 
 /** How many earlier runs' reports each run gets, and how much of each. */
 const PREVIOUS_RUNS = 3
@@ -180,7 +180,8 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     await alert(paths, config.onFailure, { definition, run: null, error: message, session: null })
     return [{ status: "failed", path: label, detail: `${message}; not run` }]
   }
-  writeInflight(paths, { run: run.page, id: run.id, url: run.url, key, automation: definition.id, automationUrl: definition.url, title: definition.title, agent: definition.agent, model: definition.model, effort: definition.effort, trigger, at: input.at, directory: definition.directory, startedAt, pid: process.pid, request })
+  const inflight: Inflight = { run: run.page, id: run.id, url: run.url, key, automation: definition.id, automationUrl: definition.url, title: definition.title, agent: definition.agent, model: definition.model, effort: definition.effort, trigger, at: input.at, directory: definition.directory, startedAt, pid: process.pid, request }
+  writeInflight(paths, inflight)
   report({ status: "In progress", run: run.id, url: run.url })
 
   let ok = false
@@ -207,6 +208,12 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
       model: definition.model,
       effort: definition.effort,
       title: `${definition.id} ${definition.title}`,
+      signal: context.signal,
+      onSession(id) {
+        session = id
+        inflight.session = id
+        writeInflight(paths, inflight)
+      },
       env: {
         // The agent reaches Notion through its own tools. Notion Code's token stays out of its environment: Notion
         // credits page edits made with it to the token's owner, so an agent holding it could pass the assignee check.
@@ -219,10 +226,23 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
         NTNCODE_RUN_URL: run.url,
       },
     })
-    ;({ ok, reply, error, session, resume, usage } = output)
+    ;({ ok, reply, error, resume, usage } = output)
+    session = output.session ?? session
     details = output.details ?? null
   } catch (failure) {
     error = (failure as Error).message
+  }
+
+  // A CLI or MCP bridge exiting does not stop an app-owned agent. Keep its identity until interruption succeeds.
+  let cleanupPending = false
+  if (!ok && session && agent.cancel) {
+    try {
+      await agent.cancel(paths, session)
+    } catch (failure) {
+      cleanupPending = true
+      error = `${error ?? "Run failed"}; couldn't stop the hosted session: ${(failure as Error).message}`
+      writeInflight(paths, { ...inflight, session, cleanupPending: true })
+    }
   }
 
   const finishedAt = new Date().toISOString()
@@ -241,7 +261,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     queueOutbox(paths, { run: run.page, id: run.id, finish })
     recorded = `queued for Notion (${(failure as Error).message})`
   }
-  clearInflight(paths, run.page)
+  if (!cleanupPending) clearInflight(paths, run.page)
   report({ status: finish.status, run: run.id, url: run.url, error, report: reply || null, session, resume, usage })
   if (ok) return [{ status: "completed", path: label, detail: `${run.id} completed; ${recorded}` }]
   const alerted = await alert(paths, config.onFailure, { definition, run, error: error ?? "unknown error", session })

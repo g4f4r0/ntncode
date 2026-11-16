@@ -181,7 +181,7 @@ async function runServe(args: string[]): Promise<number> {
     appendLog(paths, event)
   }
   log({ event: "serve", version: VERSION, pid: process.pid })
-  await serve({ paths, modules, log, signal: controller.signal, load: (now) => ({ ...context(paths, false), now }) })
+  await serve({ paths, modules, log, signal: controller.signal, load: (now) => ({ ...context(paths, false), now, signal: controller.signal }) })
   log({ event: "stopped" })
   return EXIT.ok
 }

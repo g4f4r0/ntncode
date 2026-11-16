@@ -147,6 +147,10 @@ export const Inflight = z.strictObject({
   /** The scheduler process that started it. */
   pid: z.number().int(),
   request: z.string().nullable(),
+  /** A daemon-owned session, saved before its prompt is sent. */
+  session: z.string().nullable().optional(),
+  /** Keep this automation blocked until its hosted run is confirmed stopped. */
+  cleanupPending: z.boolean().optional(),
 })
 export type Inflight = z.infer<typeof Inflight>
 
