@@ -5,12 +5,15 @@ import { claudeCode, claudeCodeLinks } from "./claude-code.ts"
 import { codex, codexLinks } from "./codex.ts"
 import { ensureLinks, linkChecks } from "./links.ts"
 import { openCode, openCodeLinks } from "./opencode.ts"
+import { t3Code } from "./t3-code.ts"
+import { zeron } from "./zeron.ts"
+import { capy } from "./capy.ts"
 
 export { AgentName, Effort, modelId, type Agent, type AgentRunInput, type AgentRunOutput, type Usage } from "./agent.ts"
 export { explainFailure, redact } from "./failure.ts"
 
 /** Every agent, by the name the Notion Agent property uses. */
-export const AGENTS: Record<AgentName, Agent> = { "Claude Code": claudeCode, Codex: codex, OpenCode: openCode }
+export const AGENTS: Record<AgentName, Agent> = { "Claude Code": claudeCode, Codex: codex, OpenCode: openCode, "T3 Code": t3Code, Zeron: zeron, Capy: capy }
 
 /** Every agent's paths that link into ~/.agents, so there is one copy of everything. */
 const allLinks = (paths: Paths) => [...claudeCodeLinks(paths), ...codexLinks(paths), ...openCodeLinks(paths)]

@@ -55,6 +55,50 @@ function manualTasks(context: Context): Task[] {
   return tasks
 }
 
+/** Stops daemon-owned sessions before another occurrence may run. Failed interruption keeps the record for retry. */
+async function recoverRuns(context: Context, startup = false): Promise<Result[]> {
+  if (!context.config.automations) return []
+  const runs = new Runs(context.notion, createNotionWriter(context.token), context.config.automations.runs)
+  const problems: string[] = []
+  const inflights = readInflight(context.paths, problems)
+  const results: Result[] = problems.map((detail): Result => ({ status: "failed", path: "runs", detail }))
+  // This runs before the scheduler starts anything, so every run still on record was cut off by the last stop.
+  for (const inflight of inflights) {
+    if (!startup && !inflight.cleanupPending && inflight.pid === process.pid) continue
+    if (inflight.session && AGENTS[inflight.agent].cancel) {
+      try {
+        await AGENTS[inflight.agent].cancel!(context.paths, inflight.session)
+      } catch (failure) {
+        results.push({ status: "failed", path: inflight.id, detail: `couldn't stop the hosted session; automation remains blocked: ${(failure as Error).message}` })
+        continue
+      }
+    }
+    if (inflight.cleanupPending) {
+      clearInflight(context.paths, inflight.run)
+      results.push({ status: "completed", path: inflight.id, detail: "stopped the hosted session left by a failed run" })
+      continue
+    }
+    const finishedAt = new Date().toISOString()
+    const error = "Notion Code's scheduler stopped during the run (a restart or a crash), so the agent was stopped too"
+    try {
+      const markdown = renderReport({ agent: inflight.agent, ok: false, reply: "", error: `${error}.`, details: `run ${inflight.id} started ${inflight.startedAt}\nscheduler started again ${finishedAt}; no agent process left to report` })
+      await runs.finish(inflight.run, { status: "Failed", startedAt: inflight.startedAt, finishedAt, markdown, session: inflight.session ?? null })
+    } catch (failure) {
+      results.push({ status: "failed", path: inflight.id, detail: `couldn't mark ${inflight.id} Failed: ${(failure as Error).message}` })
+      continue
+    }
+    clearInflight(context.paths, inflight.run)
+    if (inflight.request) {
+      fs.rmSync(path.join(manualFolder(context.paths), `${inflight.request}.json`), { force: true })
+      writeJson(resultPath(context.paths, inflight.request), RunResult.parse({ request: inflight.request, automation: inflight.automation, run: inflight.id, url: inflight.url, status: "Failed", error, report: null, session: inflight.session ?? null, resume: null }))
+    }
+    const definition = { id: inflight.automation, title: inflight.title, url: inflight.automationUrl, directory: inflight.directory }
+    const alerted = await alert(context.paths, context.config.onFailure, { definition, run: { id: inflight.id, url: inflight.url }, error, session: null })
+    results.push({ status: "failed", path: `${inflight.automation} ${inflight.title}`, detail: `${inflight.id} marked Failed: ${error}; ${alerted}` })
+  }
+  return results
+}
+
 /** Notion Automations rows → scheduled agent runs, each recorded in Runs. */
 export const automations: Module = {
   name: "automations",
@@ -78,43 +122,18 @@ export const automations: Module = {
           run: (ready, fire) => runAutomation({ context: ready, definition, trigger: "Scheduled", at: fire.at, request: null }),
         }),
       )
-    return [sync, ...scheduled, ...manualTasks(context)]
+    const blocked = new Set(readInflight(context.paths).filter((run) => run.cleanupPending || run.pid !== process.pid).map((run) => run.automation))
+    return [sync, ...scheduled, ...manualTasks(context)].filter((task) => task.kind === "sync" || !blocked.has(task.group ?? task.id))
   },
 
   serve: {
     /** A run still marked as started when the scheduler starts was cut off: it is marked Failed and alerted. */
-    async start(context) {
-      if (!context.config.automations) return []
-      const runs = new Runs(context.notion, createNotionWriter(context.token), context.config.automations.runs)
-      const problems: string[] = []
-      const inflights = readInflight(context.paths, problems)
-      const results: Result[] = problems.map((detail): Result => ({ status: "failed", path: "runs", detail }))
-      // This runs before the scheduler starts anything, so every run still on record was cut off by the last stop.
-      for (const inflight of inflights) {
-        const finishedAt = new Date().toISOString()
-        const error = "Notion Code's scheduler stopped during the run (a restart or a crash), so the agent was stopped too"
-        try {
-          const markdown = renderReport({ agent: inflight.agent, ok: false, reply: "", error: `${error}.`, details: `run ${inflight.id} started ${inflight.startedAt}\nscheduler started again ${finishedAt}; no agent process left to report` })
-          await runs.finish(inflight.run, { status: "Failed", startedAt: inflight.startedAt, finishedAt, markdown })
-        } catch (failure) {
-          results.push({ status: "failed", path: inflight.id, detail: `couldn't mark ${inflight.id} Failed: ${(failure as Error).message}` })
-          continue
-        }
-        clearInflight(context.paths, inflight.run)
-        if (inflight.request) {
-          fs.rmSync(path.join(manualFolder(context.paths), `${inflight.request}.json`), { force: true })
-          writeJson(resultPath(context.paths, inflight.request), RunResult.parse({ request: inflight.request, automation: inflight.automation, run: inflight.id, url: inflight.url, status: "Failed", error, report: null, session: null, resume: null }))
-        }
-        const definition = { id: inflight.automation, title: inflight.title, url: inflight.automationUrl, directory: inflight.directory }
-        const alerted = await alert(context.paths, context.config.onFailure, { definition, run: { id: inflight.id, url: inflight.url }, error, session: null })
-        results.push({ status: "failed", path: `${inflight.automation} ${inflight.title}`, detail: `${inflight.id} marked Failed: ${error}; ${alerted}` })
-      }
-      return results
-    },
+    start: (context) => recoverRuns(context, true),
     /** Retries Runs updates Notion refused, and forgets manual results older than a day. */
     async tick(context) {
       if (!context.config.automations) return []
       const runs = new Runs(context.notion, createNotionWriter(context.token), context.config.automations.runs)
+      const recovered = await recoverRuns(context)
       const left = await flushOutbox(context.paths, runs)
       // Manual results, and requests that never became a run, are forgotten after a day.
       for (const folder of [resultsFolder(context.paths), manualFolder(context.paths)]) {
@@ -123,7 +142,7 @@ export const automations: Module = {
           if (context.now.getTime() - fs.statSync(file).mtimeMs > 24 * 3_600_000) fs.rmSync(file, { force: true })
         }
       }
-      return left ? [{ status: "failed", path: outboxFolder(context.paths), detail: `${left} Runs updates still waiting for Notion` }] : []
+      return [...recovered, ...(left ? [{ status: "failed" as const, path: outboxFolder(context.paths), detail: `${left} Runs updates still waiting for Notion` }] : [])]
     },
   },
 

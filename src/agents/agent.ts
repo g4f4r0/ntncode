@@ -5,7 +5,7 @@ import type { Paths } from "../shared/config.ts"
 import type { Check } from "../shared/module.ts"
 
 /** The agents an automation can run on, by the names the Notion Agent property uses. */
-export const AgentName = z.enum(["Claude Code", "Codex", "OpenCode"])
+export const AgentName = z.enum(["Claude Code", "Codex", "OpenCode", "T3 Code", "Zeron", "Capy"])
 export type AgentName = z.infer<typeof AgentName>
 
 /** Reasoning effort, by the names the Notion Effort property uses, lowercased. Each agent maps it to its own levels. */
@@ -23,6 +23,9 @@ export interface AgentRunInput {
   /** Added to, or with undefined removed from, the scheduler's environment. */
   env?: Record<string, string | undefined>
   onStart?: (pid: number) => void
+  /** A daemon-owned session is recorded before work starts, so a scheduler restart can stop it. */
+  onSession?: (session: string) => void
+  signal?: AbortSignal
 }
 
 export interface AgentRunOutput {
@@ -39,6 +42,28 @@ export interface AgentRunOutput {
   usage: Usage | null
   /** For a failure, the raw context: exit code, the agent's own error fields, the end of its stderr; secrets masked. */
   details?: string | null
+}
+
+/** Hosted apps keep their own environment. Give alerts their run identity without copying scheduler credentials. */
+export function hostedPrompt(input: AgentRunInput): string {
+  const names = ["NTNCODE_AUTOMATION", "NTNCODE_AUTOMATION_TITLE", "NTNCODE_AUTOMATION_URL", "NTNCODE_DIRECTORY", "NTNCODE_RUN", "NTNCODE_RUN_URL"]
+  const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`
+  const values = names.flatMap((name) => input.env?.[name] === undefined ? [] : [quote(`${name}=${input.env[name]}`)])
+  if (!values.length) return input.prompt
+  return `${input.prompt}\n\n<hosted-run-context>\nThis app runs the agent in its daemon's environment. When calling ntncode alert, prefix the command with the following exact environment assignments so the alert belongs to this automation run:\n\nenv ${values.join(" ")} ntncode alert "<message>"\n</hosted-run-context>`
+}
+
+/** A hosted agent inherits its daemon's environment, rather than the sanitized bridge environment. */
+export function assertHostedEnvironment(pid: number): void {
+  if (!Number.isSafeInteger(pid) || pid < 1) throw new Error("Couldn't identify the local app's engine process")
+  if (process.platform !== "linux") throw new Error("Hosted daemon environment verification currently requires Linux")
+  let names: string[]
+  try {
+    names = fs.readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").map((entry) => entry.split("=", 1)[0]!)
+  } catch {
+    throw new Error("Couldn't verify the local app engine's environment")
+  }
+  if (names.includes("NOTION_ACCESS_TOKEN")) throw new Error("The local app engine has NOTION_ACCESS_TOKEN in its environment; remove it from that service before running automations")
 }
 
 /**
@@ -60,6 +85,8 @@ export interface Agent {
   /** Why the agent can't run this model and effort, led by the property to fix (`Model: …`), or null when it can. */
   settingsError(model: string | null, effort: Effort | null): string | null
   run(paths: Paths, input: AgentRunInput): Promise<AgentRunOutput>
+  /** Stops an existing daemon-owned session. Must be safe to repeat after a restart. */
+  cancel?(paths: Paths, session: string): Promise<void>
   /** `required` are the MCP servers every agent must have, from the config. */
   checks(paths: Paths, required: string[]): Promise<Check[]>
   /**
