@@ -5,7 +5,7 @@ import type { Paths } from "../shared/config.ts"
 import type { Check } from "../shared/module.ts"
 
 /** The agents an automation can run on, by the names the Notion Agent property uses. */
-export const AgentName = z.enum(["Claude Code", "Codex", "OpenCode", "T3 Code", "Zeron"])
+export const AgentName = z.enum(["Claude Code", "Codex", "OpenCode", "T3 Code", "Zeron", "Capy"])
 export type AgentName = z.infer<typeof AgentName>
 
 /** Reasoning effort, by the names the Notion Effort property uses, lowercased. Each agent maps it to its own levels. */

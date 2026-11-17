@@ -137,12 +137,13 @@ command runs with the details on stdin and in `AUTOMATION_*` variables. An agent
 `ntncode alert "<message>"`, which goes through the same command. A Runs update Notion refuses waits in an outbox and
 is retried every tick.
 
-### T3 Code and Zeron
+### T3 Code, Zeron, and Capy
 
-Set an automation's Agent to `T3 Code` or `Zeron` to keep its session in that app. Both run on the same Linux server
-as Notion Code, through an already-running local daemon. Neither adapter starts a daemon, connects to another device,
-or changes existing automation assignments. Install `t3` or `zeron` on the scheduler's PATH (or in `~/.local/bin`),
-start its service, and configure its model provider and MCP tools in that app before running the automation.
+Set an automation's Agent to `T3 Code`, `Zeron`, or `Capy` to keep its session in that app. All three run on the same
+Linux server as Notion Code, through an already-running local daemon. No adapter starts a daemon, connects to another
+device, or changes existing automation assignments. Install `t3` or `zeron` on the scheduler's PATH (or in
+`~/.local/bin`), or pair Capy's dock (`~/.capy/bin/capy`), start its service, and configure its model provider and MCP
+tools in that app before running the automation.
 
 T3 Code uses its authenticated local HTTP MCP endpoint. It creates temporary client sessions through T3's local
 auth control plane and PKCE OAuth, keeps credentials in memory, and revokes the sessions when it disconnects.
@@ -157,22 +158,32 @@ working directory, records its ID, then sends the prompt. With Model empty, it p
 preferring Claude Code and then Codex. A `gpt-*` model selects Codex and a `claude-*` model selects Claude Code.
 For another harness, use `harness/model`, such as `pi/anthropic/claude-fable-5-2`.
 
+Capy uses its HTTP API at `api.capy.ai` with `CAPY_API_KEY`, a key from the Capy app's Settings → API, kept in
+`~/.config/notion-code/agents.env`. It runs the thread on this machine's dock, read from
+`~/.capy/dock/status.json`, in the run's folder as a linked workspace. That folder must be exactly one of the dock's
+linked folders, so an automation usually sets Repository to a linked clone. The Capy project is the one that holds
+the folder's origin repository, preferring the project where it is primary. Notion Code's `claude-*` and `gpt-*`
+models map to `anthropic/…` and `openai/…`; any other Capy model ID, such as `claude-code/claude-opus-5-5` for the
+dock's own Claude Code, passes through. With Model empty, Capy uses the key's default model. Capy reports a new
+thread as idle until the dock picks it up, so a thread that never starts fails after two minutes.
+
 T3 Code accepts its catalog's model ID, or `providerInstanceId/model` when selection would otherwise be ambiguous.
-With Model empty, it keeps the project's or app's default. T3 Code requires Model when Effort is set; both adapters
-reject an effort the selected model or harness does not offer. Existing Notion labels such as `GPT-6.1 Sol` still
+With Model empty, it keeps the project's or app's default. T3 Code requires Model when Effort is set; every adapter
+rejects an effort the selected model or harness does not offer. Existing Notion labels such as `GPT-6.1 Sol` still
 map to their model IDs. Add an exact custom ID as a Model option when needed.
 
 Hosted agents inherit their app daemon's environment. Notion Code checks that the daemon does not carry its
 `NOTION_ACCESS_TOKEN`; this environment check currently requires Linux. The prompt supplies the automation's
 non-secret run context as a shell prefix for `ntncode alert`. Provider credentials belong to the app's service,
-rather than Notion Code's `agents.env`. `doctor` checks the local daemon and reports effective provider MCP
+rather than Notion Code's `agents.env`; only Capy's API key lives there. `doctor` checks the local daemon and reports effective provider MCP
 connections as unverified when the app does not expose them.
 
 A run fails if it needs input, loses reliable status, or does not complete within an hour. Scheduler shutdown
 interrupts hosted runs. A restart uses their saved session IDs to stop unfinished execution before another occurrence
 can start; an unconfirmed cancellation keeps that automation blocked and is retried. Session IDs and final replies
-are recorded in Runs. These app interfaces do not expose token usage or cost, so those properties stay empty.
-T3 threads can be inspected with `t3 thread show <session>`; Zeron chats remain in its app and can be read through MCP.
+are recorded in Runs. These app interfaces do not expose token usage or cost, so those properties stay empty; Capy's credits stay in Capy.
+T3 threads can be inspected with `t3 thread show <session>`; Zeron chats remain in its app and can be read through MCP;
+Capy threads are in the Capy app under their automation's title.
 
 ## How artifacts work
 
