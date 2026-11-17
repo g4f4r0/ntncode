@@ -20,10 +20,14 @@ const Models = z.looseObject({
   default: z.looseObject({ modelId: z.string() }).nullish(),
 })
 const Ask = z.looseObject({ kind: z.string(), text: z.string().nullable() })
-const Thread = z.looseObject({ id: ThreadId, projectId: z.string().nullable(), status: z.string(), needsYou: z.boolean().optional(), ask: Ask.nullish() })
-const Page = z.looseObject({ items: z.array(z.looseObject({ source: z.string(), text: z.string() })), cursor: z.string().nullable() })
+const Thread = z.looseObject({ id: ThreadId, projectId: z.string().nullable(), status: z.string(), needsYou: z.boolean().optional(), ask: Ask.nullish(), queuedAt: z.string().nullish() })
+const Page = z.looseObject({ items: z.array(z.looseObject({ id: z.string(), source: z.string(), text: z.string() })), cursor: z.string().nullable() })
+const Cancelled = z.looseObject({ outcome: z.enum(["cancelled", "tooLate"]) })
 type Thread = z.infer<typeof Thread>
 type Dock = z.infer<typeof Dock>
+
+/** The request may have reached Capy without its answer reaching us. */
+class CapyUnreachable extends Error {}
 
 export interface CapyDeps {
   fetch?: typeof fetch
@@ -125,65 +129,114 @@ export function createCapy(deps: CapyDeps = {}) {
   const timeoutMs = deps.timeoutMs ?? 3_600_000
   const pickupMs = deps.pickupMs ?? 120_000
 
-  /** One API call. A 429 waits as long as Capy asks, within the deadline; any other failure throws Capy's own reason. */
+  /**
+   * One API call. A 429 waits as long as Capy asks, and a network failure, timeout, or 5xx is retried with backoff,
+   * both within the deadline; every call is safe to repeat. Any other answer throws Capy's own reason.
+   */
   async function api<T>(schema: z.ZodType<T>, method: string, route: string, options: { body?: unknown; signal?: AbortSignal; deadline?: number } = {}): Promise<T> {
     const key = keyOf()
     if (!key) throw new Error(`${KEY} isn't in the scheduler's environment`)
     const deadline = options.deadline ?? now() + 60_000
-    for (;;) {
-      const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
-      const response = await request(`${CAPY_API}${route}`, {
-        method, redirect: "error", signal,
-        headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(options.body === undefined ? {} : { "Content-Type": "application/json" }) },
-        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-      })
-      const text = await response.text()
+    const label = `${method} ${route.split("?")[0]}`
+    for (let attempt = 0; ; attempt++) {
+      options.signal?.throwIfAborted()
+      let response: Response
+      let text: string
+      try {
+        const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
+        response = await request(`${CAPY_API}${route}`, {
+          method, redirect: "error", signal,
+          headers: { Authorization: `Bearer ${key}`, Accept: "application/json", ...(options.body === undefined ? {} : { "Content-Type": "application/json" }) },
+          ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+        })
+        text = await response.text()
+      } catch (error) {
+        options.signal?.throwIfAborted()
+        const wait = Math.min(30_000, 1_000 * 2 ** attempt)
+        if (now() + wait > deadline) throw new CapyUnreachable(`Capy's API didn't answer ${label}: ${(error as Error).message}`)
+        await sleep(wait, options.signal)
+        continue
+      }
       let body: unknown = null
       try {
         body = text ? JSON.parse(text) : null
       } catch {}
-      if (response.status === 429) {
-        const seconds = Number((body as { retryAfterSeconds?: unknown } | null)?.retryAfterSeconds ?? response.headers.get("retry-after") ?? 5)
-        const wait = Math.max(1, Number.isFinite(seconds) ? seconds : 5) * 1_000
-        if (now() + wait > deadline) throw new Error("Capy's API is rate limiting this key")
+      if (response.status === 429 || response.status >= 500) {
+        const asked = response.status === 429 ? Number((body as { retryAfterSeconds?: unknown } | null)?.retryAfterSeconds ?? response.headers.get("retry-after") ?? 5) : NaN
+        const wait = Number.isFinite(asked) ? Math.max(1, asked) * 1_000 : Math.min(30_000, 1_000 * 2 ** attempt)
+        if (now() + wait > deadline) {
+          if (response.status === 429) throw new Error("Capy's API is rate limiting this key")
+          throw new CapyUnreachable(`Capy's API answered ${response.status} to ${label}`)
+        }
         await sleep(wait, options.signal)
         continue
       }
       if (!response.ok) {
         const reason = body && typeof body === "object" ? [(body as Record<string, unknown>)._tag, (body as Record<string, unknown>).message].filter((part) => typeof part === "string").join(": ") : ""
-        throw new Error(`Capy's API answered ${response.status} to ${method} ${route.split("?")[0]}${reason ? ` (${reason})` : ""}`)
+        throw new Error(`Capy's API answered ${response.status} to ${label}${reason ? ` (${reason})` : ""}`)
       }
-      return schema.parse(body)
+      const parsed = schema.safeParse(body)
+      if (!parsed.success) throw new Error(`Capy's API answered ${label} in an unexpected shape: ${oneLine(parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; "), 200)}`)
+      return parsed.data
     }
   }
 
   const getThread = (id: string, signal?: AbortSignal, deadline?: number) => api(Thread, "GET", `/threads/${id}`, { signal, deadline })
 
-  /** The last assistant message: the transcript reads oldest first, so page forward until the end. */
-  async function finalReply(id: string, signal?: AbortSignal): Promise<string> {
-    let reply = ""
+  /**
+   * The whole transcript, oldest first. An unchanged cursor means unsettled messages block paging, so the transcript
+   * is incomplete: null.
+   */
+  async function transcript(id: string, signal?: AbortSignal, deadline?: number): Promise<z.infer<typeof Page>["items"] | null> {
+    const items: z.infer<typeof Page>["items"] = []
     let after: string | null = null
     for (let page = 0; page < 100; page++) {
       const query = new URLSearchParams({ limit: "100", ...(after ? { after } : {}) })
-      const result = await api(Page, "GET", `/threads/${id}/messages?${query}`, { signal })
-      reply = result.items.filter((item) => item.source === "assistant" && item.text.trim()).at(-1)?.text ?? reply
-      if (!result.cursor || result.cursor === after) return reply
+      const result = await api(Page, "GET", `/threads/${id}/messages?${query}`, { signal, deadline })
+      items.push(...result.items)
+      if (!result.cursor) return items
+      if (result.cursor === after) return null
       after = result.cursor
     }
-    return reply
+    return null
   }
 
-  /** An interrupt is a request; confirm the thread has stopped working before calling the session stopped. */
+  const lastReply = (items: z.infer<typeof Page>["items"]) => items.filter((item) => item.source === "assistant" && item.text.trim()).at(-1)?.text ?? ""
+
+  /**
+   * Stops the thread and confirms it. A working step is interrupted. A visible prompt with no reply is cancelled. A
+   * thread's opening prompt stays out of the transcript until the dock picks it up, and an interrupt doesn't drop it,
+   * so a queued thread is watched until it starts and is then interrupted, or until it settles. Safe to repeat.
+   */
   async function stop(id: string): Promise<void> {
-    await api(z.unknown(), "POST", `/threads/${id}/interrupt`)
     const deadline = now() + 30_000
+    const pause = () => sleep(Math.min(pollMs, 2_000))
     while (now() < deadline) {
       const thread = await getThread(id)
-      if (thread.id !== id) throw new Error("Capy returned another thread while confirming the interrupt")
-      if (thread.status !== "working") return
-      await sleep(Math.min(pollMs, 2_000))
+      if (thread.id !== id) throw new Error("Capy returned another thread while confirming the stop")
+      if (thread.status === "failed" || thread.status === "archived") return
+      if (thread.status === "working") {
+        await api(z.unknown(), "POST", `/threads/${id}/interrupt`)
+        await pause()
+        continue
+      }
+      const items = await transcript(id)
+      if (!items) {
+        await pause()
+        continue
+      }
+      const replied = items.findLastIndex((item) => item.source === "assistant")
+      const pending = items.slice(replied + 1).filter((item) => item.source === "user")
+      if (!pending.length && !thread.queuedAt) return
+      let cancelled = 0
+      for (const item of pending) {
+        const result = await api(Cancelled, "POST", `/threads/${id}/messages/${item.id}/cancel`)
+        if (result.outcome === "cancelled") cancelled++
+      }
+      if (pending.length && cancelled === pending.length) return
+      await pause()
     }
-    throw new Error("Capy's interrupt is unconfirmed; its thread may still be working")
+    throw new Error("Capy's stop is unconfirmed; its thread may still run")
   }
 
   async function validate(model: string | null, effort: Effort | null, signal?: AbortSignal): Promise<{ modelId: string; reasoningMode?: Effort } | null> {
@@ -230,16 +283,26 @@ export function createCapy(deps: CapyDeps = {}) {
         const projectId = projectFor((await api(Projects, "GET", "/projects", { signal: input.signal })).items, repository)
         const model = await validate(input.model, input.effort, input.signal)
         input.signal?.throwIfAborted()
-        const thread = await api(Thread, "POST", "/threads", {
-          signal: input.signal,
-          body: {
-            // Capy dedupes creation by requestId, so a retried request never starts a second thread.
-            requestId: `ntncode-${randomUUID()}`,
-            projectId, title: input.title, message: hostedPrompt(input),
-            device: { deviceId: dock.deviceId, workspace: { kind: "linked", root } },
-            ...(model ? { model } : {}),
-          },
-        })
+        const body = {
+          // Capy dedupes creation by requestId, so a retried request never starts a second thread.
+          requestId: `ntncode-${randomUUID()}`,
+          projectId, title: input.title, message: hostedPrompt(input),
+          device: { deviceId: dock.deviceId, workspace: { kind: "linked", root } },
+          ...(model ? { model } : {}),
+        }
+        let thread: Thread
+        try {
+          thread = await api(Thread, "POST", "/threads", { signal: input.signal, body })
+        } catch (error) {
+          // The thread may exist without its ID reaching us. Replaying the requestId returns it, so it can be stopped.
+          if (error instanceof CapyUnreachable || input.signal?.aborted) {
+            try {
+              session = (await api(Thread, "POST", "/threads", { body, deadline: now() + 30_000 })).id
+              input.onSession?.(session)
+            } catch {}
+          }
+          throw error
+        }
         session = thread.id
         input.onSession?.(session)
         if (thread.projectId !== projectId) throw new Error("Capy returned a thread in another project")
@@ -257,13 +320,16 @@ export function createCapy(deps: CapyDeps = {}) {
           if (last.status === "archived") throw new Error("Capy's thread was archived before it finished")
           if (last.status === "working") started = true
           if (last.status === "idle") {
-            reply = await finalReply(session, input.signal)
-            if (reply.trim()) {
+            // Finished means a settled transcript whose last prompt has an answer, with nothing queued.
+            const items = await transcript(session, input.signal, deadline)
+            const replied = items ? items.findLastIndex((item) => item.source === "assistant") : -1
+            if (items && replied >= 0 && !items.slice(replied + 1).some((item) => item.source === "user") && !last.queuedAt) {
+              reply = lastReply(items)
+              if (!reply.trim()) throw new Error("Capy's thread went idle with no final reply")
               ok = true
               break
             }
-            if (started) throw new Error("Capy's thread went idle with no final reply")
-            if (now() >= pickup) throw new Error(`Capy's dock didn't start the thread within ${Math.round(pickupMs / 1_000)} seconds`)
+            if (!started && now() >= pickup) throw new Error(`Capy's dock didn't start the thread within ${Math.round(pickupMs / 1_000)} seconds`)
           }
           await sleep(pollMs, input.signal)
         }
@@ -275,7 +341,7 @@ export function createCapy(deps: CapyDeps = {}) {
         try {
           await stop(session)
         } catch (error) {
-          failure = `${failure ?? "Capy failed"}; couldn't interrupt the thread: ${redact(oneLine((error as Error).message))}`
+          failure = `${failure ?? "Capy failed"}; couldn't stop the thread: ${redact(oneLine((error as Error).message))}`
         }
       }
       return {
@@ -289,7 +355,7 @@ export function createCapy(deps: CapyDeps = {}) {
       ThreadId.parse(session)
       const thread = await getThread(session)
       if (thread.id !== session) throw new Error("Capy returned another thread")
-      if (thread.status === "working") await stop(session)
+      await stop(session)
     },
 
     envNeeds: (paths: Paths) => binary(paths) ? [{ names: [KEY], why: "Capy's API key, from the Capy app's Settings → API" }] : [],
@@ -300,10 +366,10 @@ export function createCapy(deps: CapyDeps = {}) {
       try {
         const dock = dockOf(paths)
         const running = dock.state === "connected" && isAlive(dock.pid)
+        if (running) verifyDock(dock.pid)
         checks.push(running
           ? { ok: true, name: "Capy dock", detail: `connected as ${dock.deviceId}, ${dock.roots.length} linked folders` }
           : { ok: false, level: "error", name: "Capy dock", detail: `${dock.state}${isAlive(dock.pid) ? "" : ", not running"}`, fix: "systemctl --user restart capy-dock.service, then capy dock doctor" })
-        if (running) verifyDock(dock.pid)
       } catch (error) {
         checks.push({ ok: false, level: "error", name: "Capy dock", detail: redact(oneLine((error as Error).message)), fix: "capy dock doctor" })
       }

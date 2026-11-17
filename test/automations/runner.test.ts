@@ -93,7 +93,7 @@ function stubAgent(answer: { ok: boolean; reply?: string; error?: string }) {
     checks: async () => [],
     envNeeds: () => [],
   }
-  return { agents: { "Claude Code": agent, Codex: agent, OpenCode: agent, "T3 Code": agent, Zeron: agent } as Record<AgentName, Agent>, calls }
+  return { agents: { "Claude Code": agent, Codex: agent, OpenCode: agent, "T3 Code": agent, Zeron: agent, Capy: agent } as Record<AgentName, Agent>, calls }
 }
 
 const config = (extra = {}) => ({ assignee: OWNER, automations: { automations: "a", runs: RUNS, instructions: null }, ...extra })
@@ -170,6 +170,7 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   assert.match(prompt, /<run id="RUN-4" status="Completed"[^>]*>\nYesterday: 2 issues.\n<\/run>/u)
   assert.match(prompt, /<instructions>\nAudit the store.\n<\/instructions>\n<\/automation>$/u)
   assert.deepEqual([calls[0]!.directory, calls[0]!.model, calls[0]!.effort], [path.join(paths.projects, "acme"), "claude-opus-5-5", "high"])
+  assert.ok(Object.hasOwn(calls[0]!.env!, "CAPY_API_KEY") && calls[0]!.env!.CAPY_API_KEY === undefined, "no agent session gets Capy's key")
 
   const markdown = writes.find((write) => write.kind === "markdown")!.body as string
   assert.equal(markdown, "All good: 0 issues.\n", "the page body is the agent's reply, nothing else")

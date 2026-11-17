@@ -165,7 +165,9 @@ linked folders, so an automation usually sets Repository to a linked clone. The 
 the folder's origin repository, preferring the project where it is primary. Notion Code's `claude-*` and `gpt-*`
 models map to `anthropic/…` and `openai/…`; any other Capy model ID, such as `claude-code/claude-opus-5-5` for the
 dock's own Claude Code, passes through. With Model empty, Capy uses the key's default model. Capy reports a new
-thread as idle until the dock picks it up, so a thread that never starts fails after two minutes.
+thread as idle until the dock picks it up, so a thread that never starts fails after two minutes. Capy keeps that
+queued prompt even after an interrupt, so stopping a queued thread waits up to 30 seconds for the dock to start it and
+then interrupts it; a thread still queued after that stays an unconfirmed cancellation.
 
 T3 Code accepts its catalog's model ID, or `providerInstanceId/model` when selection would otherwise be ambiguous.
 With Model empty, it keeps the project's or app's default. T3 Code requires Model when Effort is set; every adapter

@@ -218,6 +218,8 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
         // The agent reaches Notion through its own tools. Notion Code's token stays out of its environment: Notion
         // credits page edits made with it to the token's owner, so an agent holding it could pass the assignee check.
         NOTION_ACCESS_TOKEN: undefined,
+        // Only the Capy adapter uses Capy's key, from the scheduler itself; no agent session needs it.
+        CAPY_API_KEY: undefined,
         NTNCODE_AUTOMATION: definition.id,
         NTNCODE_AUTOMATION_TITLE: definition.title,
         NTNCODE_AUTOMATION_URL: definition.url,
