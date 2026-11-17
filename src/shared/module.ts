@@ -33,6 +33,8 @@ export interface Task {
    * on never fires one it missed while it was off.
    */
   off?: string
+  /** Runs even while its section is off, such as a queued manual request, so it can report that it was skipped. */
+  runWhenOff?: boolean
   run(context: Context, fire: Fire): Promise<Result[]>
 }
 

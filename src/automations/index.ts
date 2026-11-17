@@ -43,6 +43,7 @@ function manualTasks(context: Context): Task[] {
       group: request.definition.id,
       schedule: once(request.requestedAt),
       since: null,
+      runWhenOff: true,
       run: async (ready) => {
         try {
           return await runAutomation({ context: ready, definition: request.definition, trigger: "Manual", at: request.requestedAt, request: request.request })

@@ -154,7 +154,7 @@ export async function serve(options: ServeOptions): Promise<void> {
         for (const module of modules) {
           try {
             const listed = module.tasks(context)
-            tasks.push(...(active.has(module) ? listed : listed.map((task) => ({ ...task, off: `${module.name} is turned off in the config` }))))
+            tasks.push(...(active.has(module) ? listed : listed.map((task) => (task.runWhenOff ? task : { ...task, off: `${module.name} is turned off in the config` }))))
           } catch (error) {
             complete = false
             if (active.has(module)) log({ event: "error", task: `${module.name}.tasks`, error: (error as Error).message })
