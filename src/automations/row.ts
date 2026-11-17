@@ -10,6 +10,7 @@ export const AUTOMATION_PROPERTIES = {
   Title: "title",
   Assignee: "people",
   Project: "relation",
+  Repository: "rich_text",
   Status: "status",
   Agent: "select",
   Model: "select",
@@ -52,7 +53,7 @@ export const RUN_PROPERTIES = {
 /** Select and status options the code relies on; `doctor` checks Notion has each. */
 export const REQUIRED_OPTIONS = {
   automations: {
-    Status: ["Disabled", "Enabled"],
+    Status: ["Disabled", "Enabled", "Archived"],
     Agent: AgentName.options as readonly string[],
     Effort: ["Low", "Medium", "High", "Xhigh", "Max"],
     Repeat: ["Once", "Minutely", "Hourly", "Daily", "Weekly", "Monthly", "Yearly"],
@@ -64,6 +65,9 @@ export const REQUIRED_OPTIONS = {
     Effort: ["Low", "Medium", "High", "Xhigh", "Max"],
   },
 } as const
+
+/** GitHub's owner/repo form; the name is never `.` or `..`, so it can't leave the project's folder. */
+const REPOSITORY = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9._-]+$/u
 
 const REPEAT = { Minutely: "MINUTELY", Hourly: "HOURLY", Daily: "DAILY", Weekly: "WEEKLY", Monthly: "MONTHLY", Yearly: "YEARLY" } as const
 const DAYS = { Mon: "MO", Tue: "TU", Wed: "WE", Thu: "TH", Fri: "FR", Sat: "SA", Sun: "SU" } as const
@@ -283,6 +287,8 @@ export interface Row {
   status: string | null
   assignees: string[]
   projects: string[]
+  /** GitHub's owner/repo, such as g4f4r0/notion-code: the run starts in that repository's folder inside the project's Path. */
+  repository: string | null
   agent: AgentName
   model: string | null
   effort: Effort | null
@@ -301,6 +307,9 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
   const assignees = read.people("Assignee")
   const projects = read.relation("Project")
   if (projects.length > 1) read.fail("Project", "link one project at most")
+  const repository = read.text("Repository") || null
+  if (repository && !REPOSITORY.test(repository)) read.fail("Repository", `"${repository}" must be owner/repo, such as g4f4r0/notion-code`)
+  else if (repository && !projects.length) read.fail("Repository", "needs a Project, whose Path holds the repository's folder")
   const agentName = read.select("Agent")
   const agent = AgentName.safeParse(agentName)
   if (!agent.success) read.fail("Agent", agentName ? `unknown agent ${agentName}` : `is required: ${AgentName.options.join(", ")}`)
@@ -322,6 +331,7 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
       status,
       assignees,
       projects,
+      repository,
       agent: agent.data,
       model,
       effort: effort?.success ? effort.data : null,
