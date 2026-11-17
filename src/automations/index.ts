@@ -220,7 +220,7 @@ async function automationChecks(context: Context): Promise<Check[]> {
     const who = `${definition.agent}${definition.model ? ` ${definition.model}` : ""}${definition.effort ? ` ${definition.effort}` : ""}`
     checks.push({
       ok: issues.length === 0,
-      ...(issues.length ? { level: "error" as const, fix: "install the agent or fix the project's Folder" } : {}),
+      ...(issues.length ? { level: "error" as const, fix: "install the agent or fix the project's Path or the Repository" } : {}),
       name: `${definition.id} ${definition.title}`,
       detail: `${issues.length ? `${issues.join("; ")}. ` : ""}${who}, ${where}; next: ${local.length ? `${local.join(", ")}${definition.timeZone ? ` ${definition.timeZone}` : " UTC"}` : "none, the schedule has ended"}`,
     })
@@ -239,8 +239,9 @@ const AutomationRef = z
   .transform((value) => value.toUpperCase())
 
 /**
- * Reads the row now, from Notion, so a Disabled row can run for a rehearsal, and queues it for the scheduler. The
- * Assignee must be this installation's assignee, so `ntncode run` never runs someone else's automation.
+ * Reads the row now, from Notion, so a Disabled row can run for a rehearsal, and queues it for the scheduler. An
+ * Archived row never runs. The Assignee must be this installation's assignee, so `ntncode run` never runs someone else's
+ * automation.
  */
 export async function requestRun(context: Context, ref: string): Promise<{ request: string; definition: Definition }> {
   const { config, notion, paths } = context
@@ -260,6 +261,7 @@ export async function requestRun(context: Context, ref: string): Promise<{ reque
     row = unscheduled.row
   }
   if (row.id !== wanted) throw new Error(`no automation ${wanted} in Notion (${number} is ${row.id})`)
+  if (row.status === "Archived") throw new Error(`${row.id} is Archived, so it never runs; set its Status to Disabled or Enabled to run it`)
   if (row.assignees.length !== 1 || row.assignees[0] !== config.assignee) throw new Error(`${row.id}: Assignee must be this installation's assignee, ${config.assignee}`)
   const now = new Date()
   const definition = await buildDefinition(notion, paths, page, row, { now, since: now.toISOString() })

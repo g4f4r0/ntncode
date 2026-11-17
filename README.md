@@ -84,8 +84,9 @@ which only Notion Code writes.
 | ID | Unique ID, prefix `AUT` | Set by Notion |
 | Title | Title | What it does |
 | Assignee | Person | Who it runs for: each installation runs only the automations assigned to its `assignee`. One person per row, so two installations never race for the same run |
-| Project | Relation to a Projects database with a `Folder` text property | The agent runs in `~/projects/<Folder>`; empty runs it in the state's `workspace` folder |
-| Status | Status: `Disabled`, `Enabled` | Only `Enabled` runs |
+| Project | Relation to a Projects database with a `Path` text property | The agent runs in `~/projects/<Path>`, such as `~/projects/acme` or `~/projects/acme/acme-theme`; empty runs it in the state's `workspace` folder |
+| Repository | Text, GitHub's `owner/repo` | Optional, and needs a Project. The agent runs in `~/projects/<Path>/<repo>`, which must be a clone of that repository |
+| Status | Status: `Disabled`, `Enabled`, `Archived` | Only `Enabled` runs on its schedule. `Disabled` still runs with `ntncode run`, for a rehearsal; `Archived` never runs |
 | Agent | Select, one option per agent named in `AgentName` (`src/agents/agent.ts`) | The agent that runs it |
 | Model, Effort | Select, such as `Opus 5.5` or `GPT-6.1 Sol`; select `Low` to `Max` | Optional; empty uses the agent's default. `Opus 5.5` runs as `claude-opus-5-5` and `GPT-6.1 Sol` as `gpt-6.1-sol`; any other option is passed as the model ID. Each agent refuses a model or effort it can't run, and the sync reports it |
 | Start, Time zone, Repeat, Every, Days, Days of month, Months, Hours, Minutes, Occurrence, Limit, Until | Date; select; select; number; multi-selects; number; date | The schedule, one property per part of an iCalendar recurrence rule |
@@ -119,7 +120,7 @@ What makes an automation run:
    through the API show as the token's bot, so they never count. Notion credits a page body edit made through its
    markdown API to the token's owner, though, so the check can't tell those from the assignee's own; that's why agent
    runs never get Notion Code's token. Setting
-   `Disabled` always takes effect, whoever does it.
+   `Disabled` or `Archived` always takes effect, whoever does it.
 2. Each accepted row becomes an automation file in the state folder, and the scheduler reads those files, not Notion.
 3. A scheduled run first looks for its Title in Runs, so the same scheduled minute never runs twice, even if the state
    is lost.
@@ -248,7 +249,7 @@ Every command prints one JSON document on stdout; `ntncode help` describes them 
 | `ntncode sync [--dry-run] [--only <module>]` | Runs every sync once now. A dry run reads Notion and writes nothing, not even its own state |
 | `ntncode doctor` | Checks the token, the config, both databases' properties, every link, every agent's MCP servers and sign-in, the scheduler, and every automation with its next three runs |
 | `ntncode serve` | The scheduler, run by `ntncode.service`. One JSON line per event, also in `serve.log` |
-| `ntncode run AUT-12 [--wait]` | Starts one run now, read fresh from Notion, even while the row is `Disabled`, for a rehearsal. Needs the scheduler running |
+| `ntncode run AUT-12 [--wait]` | Starts one run now, read fresh from Notion, even while the row is `Disabled`, for a rehearsal; never an `Archived` row. Needs the scheduler running |
 | `ntncode alert "<message>"` | From inside a run: asks a person for attention through `onFailure` |
 | `ntncode artifact publish <file\|folder> [--title] [--project [--task]]` | Publishes a file, or a folder as a page, and prints its public link |
 | `ntncode artifact list [--project [--task]] [--search] [--limit]` | Finds published artifacts, newest first |

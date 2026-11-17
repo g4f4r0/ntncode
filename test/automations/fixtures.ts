@@ -8,7 +8,8 @@ export interface RowInput {
   n?: number
   page?: string
   title?: string
-  status?: "Enabled" | "Disabled" | null
+  status?: "Enabled" | "Disabled" | "Archived" | null
+  repository?: string | null
   owners?: string[]
   project?: string | null
   agent?: string | null
@@ -50,6 +51,7 @@ export function automationPage(input: RowInput = {}): NotionPage {
       Title: { type: "title", title: [{ plain_text: input.title ?? "Acme daily audit" }] },
       Assignee: { type: "people", people: (input.owners ?? [OWNER]).map((id) => ({ object: "user", id })) },
       Project: { type: "relation", relation: input.project === null ? [] : [{ id: input.project ?? PROJECT }], has_more: false },
+      Repository: { type: "rich_text", rich_text: input.repository ? [{ plain_text: input.repository }] : [] },
       Status: { type: "status", status: input.status === null ? null : { name: input.status ?? "Enabled" } },
       Agent: select(input.agent === undefined ? "Claude Code" : input.agent),
       Model: select(input.model),
@@ -71,11 +73,11 @@ export function automationPage(input: RowInput = {}): NotionPage {
   }
 }
 
-/** A Projects row with its Folder. */
-export function projectPage(folder: string, name = "Acme"): NotionPage {
+/** A Projects row with its Path. */
+export function projectPage(projectPath: string, name = "Acme"): NotionPage {
   return {
     id: PROJECT,
     url: "https://app.notion.com/p/acme",
-    properties: { Name: { type: "title", title: [{ plain_text: name }] }, Folder: { type: "rich_text", rich_text: folder ? [{ plain_text: folder }] : [] } },
+    properties: { Name: { type: "title", title: [{ plain_text: name }] }, Path: { type: "rich_text", rich_text: projectPath ? [{ plain_text: projectPath }] : [] } },
   }
 }

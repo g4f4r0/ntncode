@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
+import { promisify } from "node:util"
 import { z } from "zod"
 import { AgentName, AGENTS, Effort } from "../agents/index.ts"
 import type { Config, Paths } from "../shared/config.ts"
@@ -9,6 +11,8 @@ import { show, type Result } from "../shared/module.ts"
 import type { Notion, NotionPage } from "../shared/notion.ts"
 import { getTitle } from "../shared/notion.ts"
 import { Reader, readRow, type Row } from "./row.ts"
+
+const run = promisify(execFile)
 
 /**
  * An automation file: everything a run needs, so the scheduler reads files, not Notion. The sync writes one per
@@ -24,8 +28,9 @@ export const Definition = z.strictObject({
   agent: AgentName,
   model: z.string().nullable(),
   effort: Effort.nullable(),
+  /** `folder` holds the project's Path, under its first name so earlier automation files still read. */
   project: z.strictObject({ page: z.string(), name: z.string(), folder: z.string() }).nullable(),
-  /** The folder the agent runs in: the project's, or the state's workspace for no project. */
+  /** The folder the agent runs in: the project's Path, or its Repository inside it, or the state's workspace for no project. */
   directory: z.string(),
   /** iCalendar text; null for a manual run of a row with no valid schedule. */
   schedule: z.string().nullable(),
@@ -71,19 +76,39 @@ export function readDefinitions(paths: Paths): { definitions: Definition[]; prob
 /** The page's Time zone, for showing run times. */
 const zoneOf = (page: NotionPage) => new Reader(page.properties ?? {}).select("Time zone")
 
+/** The repository a folder's `origin` points at, as owner/repo, or null when it isn't a git repository with one. */
+async function originRepository(directory: string): Promise<string | null> {
+  try {
+    const { stdout } = await run("git", ["-C", directory, "remote", "get-url", "origin"])
+    return /[/:]([^/:]+\/[^/]+?)(?:\.git)?\/?$/u.exec(stdout.trim())?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
 /**
- * A row's project folder: the Projects row's Folder, under the projects folder. It must exist, so a run never starts
- * somewhere unexpected.
+ * A row's run folder: the Projects row's Path, under the projects folder, and inside it the Repository's folder when
+ * the row names one. It must exist, and a repository's folder must be a clone of it, so a run never starts somewhere
+ * unexpected.
  */
 async function resolveProject(notion: Notion, paths: Paths, row: Row): Promise<{ project: Definition["project"]; directory: string }> {
   if (!row.projects.length) return { project: null, directory: workspacePath(paths) }
   const page = await notion.getPage(row.projects[0]!)
-  const folder = new Reader(page.properties ?? {}).text("Folder")
-  if (!folder) throw new Error(`Project: the project "${getTitle(page)}" has no Folder in Notion`)
-  if (folder.includes("/") || folder.startsWith(".")) throw new Error(`Project: the project's Folder "${folder}" must be one folder name under ${show(paths, paths.projects)}`)
-  const directory = path.join(paths.projects, folder)
+  const projectPath = new Reader(page.properties ?? {}).text("Path").replace(/\/+$/u, "")
+  if (!projectPath) throw new Error(`Project: the project "${getTitle(page)}" has no Path in Notion`)
+  const segments = projectPath.split("/")
+  if (projectPath.startsWith("/") || segments.some((segment) => !segment || segment.startsWith(".")))
+    throw new Error(`Project: the project's Path "${projectPath}" must be a folder under ${show(paths, paths.projects)}, such as acme or acme/acme-theme`)
+  let directory = path.join(paths.projects, projectPath)
   if (!fs.existsSync(directory)) throw new Error(`Project: ${show(paths, directory)} doesn't exist on this machine`)
-  return { project: { page: page.id, name: getTitle(page), folder }, directory }
+  if (row.repository) {
+    directory = path.join(directory, row.repository.split("/")[1]!)
+    if (!fs.existsSync(directory)) throw new Error(`Repository: ${show(paths, directory)} doesn't exist on this machine; clone ${row.repository} there`)
+    const origin = await originRepository(directory)
+    if (origin?.toLowerCase() !== row.repository.toLowerCase())
+      throw new Error(`Repository: ${show(paths, directory)} ${origin ? `is a clone of ${origin}` : "isn't a clone"}, not of ${row.repository}`)
+  }
+  return { project: { page: page.id, name: getTitle(page), folder: projectPath }, directory }
 }
 
 /** A row → its automation file's content, reading the project and the prompt. Throws with every problem at once. */
