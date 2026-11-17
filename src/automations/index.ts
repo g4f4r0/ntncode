@@ -5,7 +5,7 @@ import { z } from "zod"
 import { AGENTS } from "../agents/index.ts"
 import { formatSchedule, parseSchedule } from "../scheduler/rrule.ts"
 import { serveEnvNames, serveStatus, upcoming } from "../scheduler/serve.ts"
-import { expandHome } from "../shared/config.ts"
+import { agentOn, expandHome, isOn } from "../shared/config.ts"
 import { quarantine, readValid, writeJson } from "../shared/files.ts"
 import { show, SYNC_SCHEDULE, type Check, type Context, type Module, type Result, type Task } from "../shared/module.ts"
 import type { Notion } from "../shared/notion.ts"
@@ -178,7 +178,7 @@ async function schemaChecks(notion: Notion, name: string, id: string, properties
 
 async function automationChecks(context: Context): Promise<Check[]> {
   const { config, paths, notion, now } = context
-  if (!config.automations) return [{ ok: false, level: "warning", name: "automations", detail: "off: the config has no automations data sources", fix: 'set "automations": { "automations": "<data source ID>", "runs": "<data source ID>" } in the config' }]
+  if (!config.automations) return [{ ok: false, level: "warning", name: "automations", detail: "off: the config has no automations data sources", fix: 'set "automations": { "source": "<Automations data source ID>", "runs": "<Runs data source ID>" } in the config' }]
   const checks: Check[] = []
   try {
     const me = await notion.me()
@@ -189,7 +189,7 @@ async function automationChecks(context: Context): Promise<Check[]> {
   } catch (error) {
     checks.push({ ok: false, level: "error", name: "Notion token", detail: (error as Error).message })
   }
-  checks.push(...(await schemaChecks(notion, "Automations", config.automations.automations, AUTOMATION_PROPERTIES, REQUIRED_OPTIONS.automations)))
+  checks.push(...(await schemaChecks(notion, "Automations", config.automations.source, AUTOMATION_PROPERTIES, REQUIRED_OPTIONS.automations)))
   checks.push(...(await schemaChecks(notion, "Runs", config.automations.runs, RUN_PROPERTIES, REQUIRED_OPTIONS.runs)))
 
   const status = serveStatus(paths, now)
@@ -215,7 +215,8 @@ async function automationChecks(context: Context): Promise<Check[]> {
   // Each agent an automation uses must be able to sign in from the scheduler's environment, not only from a shell.
   const env = serveEnvNames(paths)
   if (env) {
-    for (const agent of Object.values(AGENTS).filter((entry) => entry.binary(paths))) {
+    const used = new Set(definitions.map((definition) => definition.agent))
+    for (const agent of Object.entries(AGENTS).filter(([key, entry]) => used.has(key as keyof typeof AGENTS) && agentOn(config, key) && entry.binary(paths)).map(([, entry]) => entry)) {
       const name = agent.name
       for (const need of agent.envNeeds(paths)) {
         const ok = need.names.some((variable) => env.has(variable))
@@ -265,11 +266,12 @@ const AutomationRef = z
 export async function requestRun(context: Context, ref: string): Promise<{ request: string; definition: Definition }> {
   const { config, notion, paths } = context
   if (!config.automations) throw new Error('the config has no "automations" data sources')
+  if (!isOn(config, "automations")) throw new Error('automations are turned off in the config ("automations": { "enabled": false })')
   if (!config.assignee) throw new Error('the config has no "assignee"')
   if (!serveStatus(paths).running) throw new Error("ntncode serve isn't running, so nothing would start the run; start it with systemctl --user enable --now ntncode.service")
   const wanted = AutomationRef.parse(ref)
   const number = Number(wanted.split("-")[1])
-  const pages = (await notion.queryDataSource(config.automations.automations, { filter: { property: "ID", unique_id: { equals: number } } })).filter((page) => !page.in_trash)
+  const pages = (await notion.queryDataSource(config.automations.source, { filter: { property: "ID", unique_id: { equals: number } } })).filter((page) => !page.in_trash)
   if (!pages.length) throw new Error(`no automation ${ref.toUpperCase()} in Notion`)
   const page = pages[0]!
   // A manual run doesn't need a schedule, but a schedule that's set must be valid.

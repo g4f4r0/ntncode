@@ -13,7 +13,7 @@ import { modules } from "./modules.ts"
 import { appendLog, readSchedulerState, serve, serveStatus, upcoming } from "./scheduler/serve.ts"
 import { defaultPaths, readConfig, readToken, withConfig, type Paths } from "./shared/config.ts"
 import { acquireLock, readJson, writeAtomic } from "./shared/files.ts"
-import { needsAttention, show, type Check, type Context, type Result } from "./shared/module.ts"
+import { activeModules, needsAttention, show, type Check, type Context, type Result } from "./shared/module.ts"
 import { createNotion } from "./shared/notion.ts"
 
 const VERSION = "0.3.0"
@@ -112,7 +112,8 @@ async function sync(args: string[]): Promise<number> {
   }
   try {
     const results: (Result & { module: string; task: string })[] = []
-    for (const module of modules) {
+    if (only && !activeModules(ready.config, modules).some((module) => module.name === only)) throw new UsageError(`${only} is turned off in the config: set "${only}": { "enabled": true } to sync it`)
+    for (const module of activeModules(ready.config, modules)) {
       if (only && module.name !== only) continue
       for (const task of module.tasks(ready).filter((entry) => entry.kind === "sync")) {
         try {
@@ -154,6 +155,7 @@ async function doctor(args: string[]): Promise<number> {
     const ready: Context = { paths: withConfig(paths, config), config, notion: createNotion(token), token, dryRun: true, now: new Date() }
     const perModule = await Promise.all(
       modules.map(async (module): Promise<Check[]> => {
+        if (!activeModules(config, [module]).length) return [{ ok: true, name: module.name, detail: `turned off in the config ("enabled": false): it runs nothing and isn't checked` }]
         try {
           return (await module.checks?.(ready)) ?? []
         } catch (error) {
@@ -286,8 +288,8 @@ function help(): number {
     commands: COMMANDS,
     exitCodes: { 0: "ok", 1: "needs attention: a failed or skipped result, a doctor error, or a failed run", 2: "usage: bad arguments, no token, or an invalid config" },
     files: {
-      config: "~/.config/notion-code/config.json: { assignee, projects, skills, automations: { automations, runs, instructions }, onFailure, mcp, artifacts: { bucketUrl, publicUrl } }",
-      notionJson: '~/.agents/notion.json and ~/projects/<folder>/notion.json: { "instructions": "<page ID or link>" }',
+      config: "~/.config/notion-code/config.json: { assignee, projects, instructions: { enabled, source }, skills: { enabled, source }, automations: { enabled, source, runs }, agents: { enabled, mcp, <agent>: { enabled } }, artifacts: { enabled, bucketUrl, publicUrl }, onFailure }; <agent> is claude-code, codex, opencode, t3-code, zeron or capy",
+      notionJson: '~/.agents/notion.json and ~/projects/<folder>/notion.json: { "instructions": "<page ID or link>" }, read only when the config has no instructions.source',
       token: "NOTION_ACCESS_TOKEN, and S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY for artifacts, from the environment or ~/.config/secrets.env",
       state: "~/.local/state/notion-code: state.json, skills.json, scheduler.json, automations/, runs/, outbox/, serve.log, sync.log, backups/",
     },

@@ -13,7 +13,7 @@ import { fakeNotion, tempHome, testContext } from "../helpers.ts"
 import { automationPage, BOT, OWNER, PROJECT, projectPage, type RowInput } from "./fixtures.ts"
 
 const SOURCE = "1e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
-const config: Config = { ...EMPTY_CONFIG, assignee: OWNER, automations: { automations: SOURCE, runs: SOURCE, instructions: null } }
+const config: Config = { ...EMPTY_CONFIG, assignee: OWNER, automations: { source: SOURCE, runs: SOURCE } }
 
 function setup() {
   const paths = tempHome()
@@ -200,4 +200,31 @@ test("ntncode run starts a Disabled row for a rehearsal but never an Archived on
   const context = (status: "Disabled" | "Archived") => testContext(paths, notionWith([{ status }]).notion, config)
   assert.equal((await requestRun(context("Disabled"), "AUT-12")).definition.id, "AUT-12")
   await assert.rejects(requestRun(context("Archived"), "AUT-12"), /AUT-12 is Archived, so it never runs/u)
+})
+
+test("a row whose agent is turned off in the config isn't scheduled, and an existing file is removed", async () => {
+  const paths = setup()
+  const off: Config = { ...config, agents: { ...config.agents, off: ["claude-code"] } }
+  const fresh = await syncAutomations(notionWith([{}]).notion, paths, off, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(fresh[0]!.status, "failed")
+  assert.match(fresh[0]!.detail, /claude-code is turned off in the config/u)
+  assert.equal(readDefinitions(paths).definitions.length, 0)
+
+  await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(readDefinitions(paths).definitions.length, 1)
+  const removed = await syncAutomations(notionWith([{}]).notion, paths, off, { now: at("2026-11-14T09:10:00Z") })
+  assert.deepEqual(removed.map((result) => result.status), ["removed"])
+  assert.equal(readDefinitions(paths).definitions.length, 0)
+})
+
+test("every run's instructions come from the Instructions data source's one Automations row", async () => {
+  const paths = setup()
+  const INSTRUCTIONS = "3a4b5c6d-7e8f-4a9b-8c0d-1e2f3a4b5c6d"
+  const row = (id: string, type: string) => ({ id, properties: { Name: { type: "title", title: [{ plain_text: type }] }, Type: { type: "select", select: { name: type } }, Project: { type: "relation", relation: [] } } })
+  const base = notionWith([{}])
+  const read: string[] = []
+  const notion = { ...base.notion, queryDataSource: async (source: string, body?: Record<string, unknown>) => (source === INSTRUCTIONS ? [row("global", "Global"), row("runs", "Automations")] as NotionPage[] : base.notion.queryDataSource(source, body)), getPageMarkdown: async (id: string) => { read.push(id); return id === "runs" ? "Report in plain words." : "Audit the store." } }
+  await syncAutomations(notion, paths, { ...config, instructions: INSTRUCTIONS }, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(fs.readFileSync(path.join(definitionsFolder(paths), "instructions.md"), "utf8"), "Report in plain words.\n")
+  assert.ok(!read.includes("global"), "the Global row is for AGENTS.md, not runs")
 })

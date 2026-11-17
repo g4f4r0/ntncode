@@ -1,4 +1,4 @@
-import type { Config, Paths } from "./config.ts"
+import { isOn, type Config, type Paths, type Section } from "./config.ts"
 import type { Notion } from "./notion.ts"
 
 /**
@@ -93,3 +93,6 @@ export const needsAttention = (result: Result) => result.status === "failed" || 
 export function show(paths: Pick<Paths, "home">, file: string): string {
   return file === paths.home ? "~" : file.startsWith(`${paths.home}/`) ? `~/${file.slice(paths.home.length + 1)}` : file
 }
+
+/** The modules the config leaves on: one turned off runs no task, no upkeep and no check. */
+export const activeModules = (config: Config, modules: Module[]) => modules.filter((module) => isOn(config, module.name as Section))

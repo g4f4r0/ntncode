@@ -3,7 +3,7 @@ import path from "node:path"
 import { z } from "zod"
 import type { Paths } from "../shared/config.ts"
 import { acquireLock, readValid, writeJson } from "../shared/files.ts"
-import type { Context, Module, Result, Task } from "../shared/module.ts"
+import { activeModules, type Context, type Module, type Result, type Task } from "../shared/module.ts"
 import { isAlive } from "../shared/process.ts"
 import { nextAfter, parseSchedule } from "./rrule.ts"
 
@@ -131,7 +131,7 @@ export async function serve(options: ServeOptions): Promise<void> {
   try {
     {
       const context = options.load(clock())
-      for (const module of modules) {
+      for (const module of activeModules(context.config, modules)) {
         try {
           report(`${module.name}.start`, (await module.serve?.start?.(context)) ?? [])
         } catch (error) {
@@ -150,7 +150,7 @@ export async function serve(options: ServeOptions): Promise<void> {
       if (context) {
         const tasks: Task[] = []
         let complete = true
-        for (const module of modules) {
+        for (const module of activeModules(context.config, modules)) {
           try {
             tasks.push(...module.tasks(context))
           } catch (error) {
@@ -217,7 +217,7 @@ export async function serve(options: ServeOptions): Promise<void> {
           )
         }
 
-        for (const module of modules) {
+        for (const module of activeModules(context.config, modules)) {
           try {
             report(`${module.name}.tick`, (await module.serve?.tick?.(context)) ?? [])
           } catch (error) {

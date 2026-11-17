@@ -1,7 +1,7 @@
 import crypto from "node:crypto"
 import fs from "node:fs"
 import path from "node:path"
-import { readSecret, type Config, type Paths } from "../shared/config.ts"
+import { isOn, readSecret, type Config, type Paths } from "../shared/config.ts"
 
 /**
  * Artifacts are files published to a public bucket, each at a link that never expires. The bucket is the index: where
@@ -85,6 +85,7 @@ export interface ArtifactContext {
 
 /** The configured bucket, or an error saying what to set. */
 export function settings(config: Config) {
+  if (!isOn(config, "artifacts")) throw new ArtifactError("artifacts are turned off in the config", 'remove "enabled": false from "artifacts" in the config to publish again')
   if (config.artifacts) return config.artifacts
   throw new ArtifactError("no bucket configured for artifacts", 'set "artifacts": { "bucketUrl": "<S3 endpoint>/<bucket>", "publicUrl": "<public address>" } in the config')
 }

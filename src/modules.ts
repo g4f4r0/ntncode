@@ -7,3 +7,4 @@ import { skills } from "./skills/index.ts"
 
 /** Every module, in the order their syncs run: instructions and skills first, so the links point at real files. */
 export const modules: Module[] = [instructions, skills, agents, automations, artifacts]
+
