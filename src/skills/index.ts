@@ -20,5 +20,5 @@ export const skills: Module = {
   checks: (context) =>
     context.config.skills
       ? []
-      : [{ ok: false, level: "warning", name: "skills", detail: "not synced: the config has no skills data source", fix: `set "skills" in ${path.basename(context.paths.config)} to the Notion Skills data source ID` }],
+      : [{ ok: false, level: "warning", name: "skills", detail: "not synced: the config has no skills data source", fix: `set "skills": { "source": "<Skills data source ID>" } in ${path.basename(context.paths.config)}` }],
 }

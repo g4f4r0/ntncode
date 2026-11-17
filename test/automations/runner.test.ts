@@ -96,7 +96,7 @@ function stubAgent(answer: { ok: boolean; reply?: string; error?: string }) {
   return { agents: { "Claude Code": agent, Codex: agent, OpenCode: agent, "T3 Code": agent, Zeron: agent, Capy: agent } as Record<AgentName, Agent>, calls }
 }
 
-const config = (extra = {}) => ({ assignee: OWNER, automations: { automations: "a", runs: RUNS, instructions: null }, ...extra })
+const config = (extra = {}) => ({ assignee: OWNER, automations: { source: "a", runs: RUNS }, ...extra })
 
 test("hosted sessions are persisted before execution and interrupted after a bridge failure", async () => {
   const paths = tempHome()
@@ -322,4 +322,16 @@ test("a failure explains itself in plain words, then shows the exact error and c
   assert.equal(explainFailure("Notion Code's scheduler stopped during the run", "Codex"), "Notion Code's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual.")
   const fenced = renderReport({ agent: "Codex", ok: false, reply: "", error: "x", details: "output with ``` inside" })
   assert.match(fenced, /````text\nx\n\noutput with ``` inside\n````/u, "a fence inside the details can't close the block")
+})
+
+test("an agent or automations turned off in the config never starts a run", async () => {
+  for (const extra of [{ agents: { mcp: ["notion"], off: ["claude-code"] } }, { off: ["automations"] }]) {
+    const paths = tempHome()
+    const { notion, writer, writes } = runsNotion()
+    const { agents, calls } = stubAgent({ ok: true })
+    const results = await runAutomation({ context: testContext(paths, notion, config(extra)), definition: definition(paths), trigger: "Scheduled", at: "2026-11-15T07:00:00.000Z", request: null, writer, agents })
+    assert.equal(results[0]!.status, "skipped")
+    assert.match(results[0]!.detail, /turned off in the config/u)
+    assert.equal(calls.length + writes.length, 0)
+  }
 })

@@ -6,6 +6,8 @@ import { hash, lstat, readJson, writeAtomic } from "../shared/files.ts"
 import { normalizeNotionMarkdown } from "../shared/markdown.ts"
 import type { Result } from "../shared/module.ts"
 import { getTitle, type Notion } from "../shared/notion.ts"
+import { projectFolder } from "../shared/projects.ts"
+import { readInstructionRows } from "../shared/instructions.ts"
 
 /** Every file this tool writes starts with this; a file without it is never overwritten. */
 export const HEADER_PREFIX = "<!-- Synced from Notion"
@@ -56,7 +58,7 @@ export const NotionJson = z.strictObject({
 })
 
 interface Mapping {
-  /** The notion.json. */
+  /** The notion.json, or the Instructions row's link. */
   source: string
   /** The AGENTS.md beside it. */
   target: string
@@ -100,6 +102,47 @@ export function findMappings(paths: Paths): { mappings: Mapping[]; problems: Res
   return { mappings, problems }
 }
 
+/**
+ * The Instructions data source's rows: its one Global row becomes ~/.agents/AGENTS.md and each Project row the AGENTS.md
+ * in its project's Path. Automations rows are for runs, not files. A row that can't be placed is reported, never guessed.
+ */
+export async function sourceMappings(notion: Notion, paths: Paths, source: string): Promise<{ mappings: Mapping[]; problems: Result[] }> {
+  const rows = await readInstructionRows(notion, source)
+  const candidates: Mapping[] = []
+  const problems: Result[] = []
+  const fail = (where: string, label: string, detail: string) => problems.push({ status: "failed", path: where, detail: `${label}: ${detail}; not written` })
+  const globals = rows.filter((row) => row.type === "Global")
+  for (const row of rows) {
+    const label = `Instructions "${row.title}"`
+    const where = row.url ?? row.page
+    if (row.issues.length) fail(where, label, row.issues.join("; "))
+    else if (row.type === "Global") {
+      if (globals.length > 1) fail(path.join(paths.agents, "AGENTS.md"), label, `one of ${globals.length} Global rows; keep one`)
+      else if (row.projects.length) fail(where, label, "a Global row names no Project")
+      else candidates.push({ source: where, target: path.join(paths.agents, "AGENTS.md"), page: row.page })
+    } else if (row.type === "Project") {
+      if (row.projects.length !== 1) {
+        fail(where, label, `Project must name exactly one project, not ${row.projects.length}`)
+        continue
+      }
+      try {
+        const { directory } = await projectFolder(notion, paths, row.projects[0]!)
+        candidates.push({ source: where, target: path.join(directory, "AGENTS.md"), page: row.page })
+      } catch (error) {
+        fail(where, label, (error as Error).message)
+      }
+    }
+  }
+  const counts = new Map<string, number>()
+  for (const { target } of candidates) counts.set(target, (counts.get(target) ?? 0) + 1)
+  const mappings = candidates.filter((mapping) => {
+    if (counts.get(mapping.target) === 1) return true
+    problems.push({ status: "failed", path: mapping.target, detail: `${mapping.source}: ${counts.get(mapping.target)} Instructions rows write this file; keep one; not written` })
+    return false
+  })
+  return { mappings, problems }
+}
+
 function header(title: string, url: string | undefined): string {
   const name = title ? `"${title.replaceAll("--", "-")}"` : "a page"
   return `${HEADER_PREFIX}: ${name}${url ? ` (${url})` : ""}. Edit it in Notion; Notion Code replaces this file on every sync. -->`
@@ -114,14 +157,21 @@ interface Planned {
 }
 
 /**
- * Writes each notion.json's page to the AGENTS.md beside it. Every Notion read finishes before anything is written.
+ * Writes each Instructions page to its AGENTS.md: from the Instructions data source when the config names one, else
+ * each notion.json's page beside it. Every Notion read finishes before anything is written.
  * A file is never overwritten unless it starts with the header, never written through a link, and never deleted;
  * when Notion fails for a page, its file keeps its last good copy.
  */
-export async function syncInstructions(notion: Notion, paths: Paths, { dryRun = false, now = new Date() } = {}): Promise<Result[]> {
+export async function syncInstructions(notion: Notion, paths: Paths, { source = null as string | null, dryRun = false, now = new Date() } = {}): Promise<Result[]> {
   const statePath = path.join(paths.state, "state.json")
   const state = readJson<State>(statePath, { version: 1, files: {} })
-  const { mappings, problems } = findMappings(paths)
+  let found: { mappings: Mapping[]; problems: Result[] }
+  try {
+    found = source ? await sourceMappings(notion, paths, source) : findMappings(paths)
+  } catch (error) {
+    return [{ status: "failed", path: source!, detail: `couldn't read the Instructions data source: ${(error as Error).message}; every file kept as it is` }]
+  }
+  const { mappings, problems } = found
   const results: Result[] = [...problems]
   const planned: Planned[] = []
 

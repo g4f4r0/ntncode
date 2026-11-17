@@ -10,6 +10,8 @@ import { normalizeNotionMarkdown } from "../shared/markdown.ts"
 import { show, type Result } from "../shared/module.ts"
 import type { Notion, NotionPage } from "../shared/notion.ts"
 import { getTitle } from "../shared/notion.ts"
+import { projectFolder } from "../shared/projects.ts"
+import { automationsRow } from "../shared/instructions.ts"
 import { Reader, readRow, type Row } from "./row.ts"
 
 const run = promisify(execFile)
@@ -88,19 +90,12 @@ async function originRepository(directory: string): Promise<string | null> {
 
 /**
  * A row's run folder: the Projects row's Path, under the projects folder, and inside it the Repository's folder when
- * the row names one. It must exist, and a repository's folder must be a clone of it, so a run never starts somewhere
- * unexpected.
+ * the row names one. A repository's folder must be a clone of it, so a run never starts somewhere unexpected.
  */
 async function resolveProject(notion: Notion, paths: Paths, row: Row): Promise<{ project: Definition["project"]; directory: string }> {
   if (!row.projects.length) return { project: null, directory: workspacePath(paths) }
-  const page = await notion.getPage(row.projects[0]!)
-  const projectPath = new Reader(page.properties ?? {}).text("Path").replace(/\/+$/u, "")
-  if (!projectPath) throw new Error(`Project: the project "${getTitle(page)}" has no Path in Notion`)
-  const segments = projectPath.split("/")
-  if (projectPath.startsWith("/") || segments.some((segment) => !segment || segment.startsWith(".")))
-    throw new Error(`Project: the project's Path "${projectPath}" must be a folder under ${show(paths, paths.projects)}, such as acme or acme/acme-theme`)
-  let directory = path.join(paths.projects, projectPath)
-  if (!fs.existsSync(directory)) throw new Error(`Project: ${show(paths, directory)} doesn't exist on this machine`)
+  const { page, name, folder, directory: projectDirectory } = await projectFolder(notion, paths, row.projects[0]!)
+  let directory = projectDirectory
   if (row.repository) {
     directory = path.join(directory, row.repository.split("/")[1]!)
     if (!fs.existsSync(directory)) throw new Error(`Repository: ${show(paths, directory)} doesn't exist on this machine; clone ${row.repository} there`)
@@ -108,7 +103,7 @@ async function resolveProject(notion: Notion, paths: Paths, row: Row): Promise<{
     if (origin?.toLowerCase() !== row.repository.toLowerCase())
       throw new Error(`Repository: ${show(paths, directory)} ${origin ? `is a clone of ${origin}` : "isn't a clone"}, not of ${row.repository}`)
   }
-  return { project: { page: page.id, name: getTitle(page), folder: projectPath }, directory }
+  return { project: { page, name, folder }, directory }
 }
 
 /** A row → its automation file's content, reading the project and the prompt. Throws with every problem at once. */
@@ -157,8 +152,9 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
   let pages: NotionPage[]
   let instructions: string | null = null
   try {
-    pages = await notion.queryDataSource(config.automations.automations, { filter: { property: "Assignee", people: { contains: assignee } } })
-    if (config.automations.instructions) instructions = normalizeNotionMarkdown(await notion.getPageMarkdown(config.automations.instructions)).trim()
+    pages = await notion.queryDataSource(config.automations.source, { filter: { property: "Assignee", people: { contains: assignee } } })
+    const row = config.instructions ? await automationsRow(notion, config.instructions) : null
+    if (row) instructions = normalizeNotionMarkdown(await notion.getPageMarkdown(row.page)).trim()
   } catch (error) {
     return [...results, { status: "failed", path: folder, detail: `${(error as Error).message}; every automation kept as it is` }]
   }
@@ -235,11 +231,19 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
     writeJson(file, definition)
     results.push({ status: changed ? "written" : "unchanged", path: file, detail: `${id} ${definition.title}: ${!before ? "newly scheduled" : changed ? "updated from Notion" : "read again; no change"}` })
   }
-  if (!dryRun && instructions !== null) {
-    const file = instructionsPath(paths)
-    if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== `${instructions}\n`) {
+  const file = instructionsPath(paths)
+  if (instructions !== null && (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== `${instructions}\n`)) {
+    if (dryRun) results.push({ status: "would write", path: file, detail: "the instructions every run gets, updated in Notion" })
+    else {
       writeAtomic(file, `${instructions}\n`)
       results.push({ status: "written", path: file, detail: "the instructions every run gets, updated from Notion" })
+    }
+  } else if (instructions === null && fs.existsSync(file)) {
+    const detail = config.instructions ? "the Instructions data source has no Automations row, so runs get no run instructions" : 'no "instructions": { "source" } in the config, so runs get no run instructions'
+    if (dryRun) results.push({ status: "would remove", path: file, detail })
+    else {
+      fs.rmSync(file, { force: true })
+      results.push({ status: "removed", path: file, detail })
     }
   }
   if (!dryRun) fs.mkdirSync(workspacePath(paths), { recursive: true })

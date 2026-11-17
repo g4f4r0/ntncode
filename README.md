@@ -23,7 +23,20 @@ from Notion. Only the automations runner writes to Notion, and only to its Runs.
 
 ## How instructions work
 
-A folder opts in with a `notion.json` that names one Notion page:
+With `"instructions": { "source": "<Instructions data source ID>" }` in the config, the sync reads that data source.
+Each row has a Type:
+
+| Type | Writes | Read by |
+| --- | --- | --- |
+| `Global`, exactly one row | `~/.agents/AGENTS.md` | every session, through the links below |
+| `Project`, with exactly one Project | `<projects folder>/<the project's Path>/AGENTS.md` | sessions in that folder or any folder inside it |
+| `Automations`, at most one row | `automations/instructions.md` in the state folder | every automation run, as its run instructions |
+
+A row whose project has no Path, whose folder doesn't exist, or that writes the same file as another row is reported
+and writes nothing. Rows in Notion's trash are ignored. Each project folder still keeps its `notion.json`, because Codex
+finds a project's root by it; `doctor` names a folder that lacks one.
+
+Without a source, a folder opts in with a `notion.json` that names one Notion page:
 
 ```json
 { "instructions": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d" }
@@ -247,14 +260,14 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
    ```json
    {
      "assignee": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
-     "skills": "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e",
+     "instructions": { "source": "4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b" },
+     "skills": { "source": "1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e" },
      "automations": {
-       "automations": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
-       "runs": "3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a",
-       "instructions": "4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
+       "source": "2c3d4e5f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+       "runs": "3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a"
      },
+     "agents": { "mcp": ["notion", "executor"], "capy": { "enabled": false } },
      "onFailure": "~/.config/notion-code/alert.sh",
-     "mcp": ["notion", "executor"],
      "artifacts": {
        "bucketUrl": "https://<account>.r2.cloudflarestorage.com/<bucket>",
        "publicUrl": "https://pub-<id>.r2.dev"
@@ -268,7 +281,8 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
    For artifacts, add a key that can read and write only that bucket to `~/.config/secrets.env`, as
    `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY`.
 
-4. Add a `notion.json` to `~/.agents` and to each project folder, then check what a sync would do:
+4. Without an instructions source, add a `notion.json` to `~/.agents` and to each project folder. Then check what a
+   sync would do:
 
    ```sh
    ntncode sync --dry-run
@@ -322,22 +336,28 @@ Every error has a `message`, and `doctor` adds a `fix` to each failed check.
 | `NOTION_ACCESS_TOKEN` | environment, else `~/.config/secrets.env` | none | The Notion token |
 | `assignee` | config | none | The Notion user this installation runs automations for |
 | `projects` | config | `~/projects` | The folder whose direct children may hold a `notion.json`, and where project automations run |
-| `skills` | config | off | The Notion Skills data source |
-| `automations` | config | off | The Automations and Runs data sources, and the instructions page every run gets |
-| `onFailure` | config | none | A shell command run when a run fails, or an agent calls `ntncode alert` |
-| `mcp` | config | `["notion"]` | The MCP servers every installed agent must have, signed in |
+| `instructions.source` | config | each `notion.json` | The Instructions data source: its Global, Project and Automations rows |
+| `skills.source` | config | off | The Notion Skills data source |
+| `automations.source`, `automations.runs` | config | off | The Automations and Runs data sources |
+| `agents.mcp` | config | `["notion"]` | The MCP servers every agent that is on must have, signed in |
+| `agents.<agent>.enabled` | config | `true` | `false` turns one agent off: no links, no checks, and its automations' runs are skipped; `ntncode run` refuses them. The keys are `claude-code`, `codex`, `opencode`, `t3-code`, `zeron` and `capy` |
 | `artifacts` | config | off | The public bucket: `bucketUrl`, its S3 endpoint and bucket name, and `publicUrl`, where it is served |
+| `<section>.enabled` | config | `true` | `false` turns off `instructions`, `skills`, `agents`, `automations` or `artifacts`: it runs nothing and `doctor` skips it, and its other settings stay. While a section or agent is off its occurrences pass unrun, so turning it back on never fires one it missed |
+| `onFailure` | config | none | A shell command run when a run fails, or an agent calls `ntncode alert` |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | environment, else `~/.config/secrets.env` | none | The bucket's access key |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME` | environment | `~/.local/state`, `~/.config` | Where the state and config folders go |
 
 The config is validated with Zod: an unknown key, a malformed ID or a bad path is an error that names the key, never
-ignored. `notion.json`, every state file and every automation file are validated the same way.
+ignored. A config in the layout from before 0.4 (`"skills": "<ID>"`, `automations.automations`,
+`automations.instructions`, a top-level `mcp`) is refused with the key that replaced each. `notion.json`, every state
+file and every automation file are validated the same way.
 
 ## Safety rules
 
 1. The syncs only read from Notion. Only the runner writes, and only to Runs; `test/architecture.test.ts` fails the
    build if anything else imports the Notion writer.
-2. It writes only the `AGENTS.md` beside a `notion.json`, and never one without its `<!-- Synced from Notion` first line.
+2. It writes only the `AGENTS.md` an Instructions row or a `notion.json` names, and never one without its
+   `<!-- Synced from Notion` first line.
 3. It never writes through a link, and never replaces a skill folder it didn't write unless it already matches Notion.
 4. A hand edit to a synced file or skill is copied to `backups/<time>/` in the state folder before it's replaced.
 5. It finishes every Notion read before writing anything; when Notion fails, everything keeps its last good copy.
@@ -379,7 +399,7 @@ src/
 ├── cli.ts           the commands, JSON in and out
 ├── modules.ts       every module, in the order their syncs run
 ├── shared/          Notion client and writer, files, markdown, processes, config, and the Module and Task types
-├── instructions/    notion.json → AGENTS.md
+├── instructions/    Instructions rows or notion.json → AGENTS.md
 ├── skills/          the Notion Skills library → ~/.agents/skills
 ├── agents/          one file per agent: its links, MCP checks, sign-in needs, settings, and how to run one prompt
 ├── scheduler/       the recurrence engine and the scheduler loop

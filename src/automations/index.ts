@@ -5,7 +5,7 @@ import { z } from "zod"
 import { AGENTS } from "../agents/index.ts"
 import { formatSchedule, parseSchedule } from "../scheduler/rrule.ts"
 import { serveEnvNames, serveStatus, upcoming } from "../scheduler/serve.ts"
-import { expandHome } from "../shared/config.ts"
+import { agentKey, agentOn, expandHome, isOn } from "../shared/config.ts"
 import { quarantine, readValid, writeJson } from "../shared/files.ts"
 import { show, SYNC_SCHEDULE, type Check, type Context, type Module, type Result, type Task } from "../shared/module.ts"
 import type { Notion } from "../shared/notion.ts"
@@ -43,6 +43,7 @@ function manualTasks(context: Context): Task[] {
       group: request.definition.id,
       schedule: once(request.requestedAt),
       since: null,
+      runWhenOff: true,
       run: async (ready) => {
         try {
           return await runAutomation({ context: ready, definition: request.definition, trigger: "Manual", at: request.requestedAt, request: request.request })
@@ -119,6 +120,7 @@ export const automations: Module = {
           kind: "run",
           schedule: definition.schedule!,
           since: definition.since,
+          ...(agentOn(context.config, definition.agent) ? {} : { off: `${agentKey(definition.agent)} is turned off in the config` }),
           run: (ready, fire) => runAutomation({ context: ready, definition, trigger: "Scheduled", at: fire.at, request: null }),
         }),
       )
@@ -178,7 +180,7 @@ async function schemaChecks(notion: Notion, name: string, id: string, properties
 
 async function automationChecks(context: Context): Promise<Check[]> {
   const { config, paths, notion, now } = context
-  if (!config.automations) return [{ ok: false, level: "warning", name: "automations", detail: "off: the config has no automations data sources", fix: 'set "automations": { "automations": "<data source ID>", "runs": "<data source ID>" } in the config' }]
+  if (!config.automations) return [{ ok: false, level: "warning", name: "automations", detail: "off: the config has no automations data sources", fix: 'set "automations": { "source": "<Automations data source ID>", "runs": "<Runs data source ID>" } in the config' }]
   const checks: Check[] = []
   try {
     const me = await notion.me()
@@ -189,7 +191,7 @@ async function automationChecks(context: Context): Promise<Check[]> {
   } catch (error) {
     checks.push({ ok: false, level: "error", name: "Notion token", detail: (error as Error).message })
   }
-  checks.push(...(await schemaChecks(notion, "Automations", config.automations.automations, AUTOMATION_PROPERTIES, REQUIRED_OPTIONS.automations)))
+  checks.push(...(await schemaChecks(notion, "Automations", config.automations.source, AUTOMATION_PROPERTIES, REQUIRED_OPTIONS.automations)))
   checks.push(...(await schemaChecks(notion, "Runs", config.automations.runs, RUN_PROPERTIES, REQUIRED_OPTIONS.runs)))
 
   const status = serveStatus(paths, now)
@@ -215,7 +217,8 @@ async function automationChecks(context: Context): Promise<Check[]> {
   // Each agent an automation uses must be able to sign in from the scheduler's environment, not only from a shell.
   const env = serveEnvNames(paths)
   if (env) {
-    for (const agent of Object.values(AGENTS).filter((entry) => entry.binary(paths))) {
+    const used = new Set(definitions.map((definition) => definition.agent))
+    for (const agent of Object.entries(AGENTS).filter(([key, entry]) => used.has(key as keyof typeof AGENTS) && agentOn(config, key) && entry.binary(paths)).map(([, entry]) => entry)) {
       const name = agent.name
       for (const need of agent.envNeeds(paths)) {
         const ok = need.names.some((variable) => env.has(variable))
@@ -231,6 +234,10 @@ async function automationChecks(context: Context): Promise<Check[]> {
   for (const definition of definitions) {
     const agent = AGENTS[definition.agent]
     const issues: string[] = []
+    if (!agentOn(config, definition.agent)) {
+      checks.push({ ok: true, name: `${definition.id} ${definition.title}`, detail: `${agentKey(definition.agent)} is turned off in the config, so each run is skipped` })
+      continue
+    }
     if (!agent.binary(paths)) issues.push(`${definition.agent} isn't installed`)
     if (!fs.existsSync(definition.directory)) issues.push(`${show(paths, definition.directory)} doesn't exist`)
     const next = definition.schedule ? upcoming({ schedule: definition.schedule }, now, 3) : []
@@ -265,11 +272,12 @@ const AutomationRef = z
 export async function requestRun(context: Context, ref: string): Promise<{ request: string; definition: Definition }> {
   const { config, notion, paths } = context
   if (!config.automations) throw new Error('the config has no "automations" data sources')
+  if (!isOn(config, "automations")) throw new Error('automations are turned off in the config ("automations": { "enabled": false })')
   if (!config.assignee) throw new Error('the config has no "assignee"')
   if (!serveStatus(paths).running) throw new Error("ntncode serve isn't running, so nothing would start the run; start it with systemctl --user enable --now ntncode.service")
   const wanted = AutomationRef.parse(ref)
   const number = Number(wanted.split("-")[1])
-  const pages = (await notion.queryDataSource(config.automations.automations, { filter: { property: "ID", unique_id: { equals: number } } })).filter((page) => !page.in_trash)
+  const pages = (await notion.queryDataSource(config.automations.source, { filter: { property: "ID", unique_id: { equals: number } } })).filter((page) => !page.in_trash)
   if (!pages.length) throw new Error(`no automation ${ref.toUpperCase()} in Notion`)
   const page = pages[0]!
   // A manual run doesn't need a schedule, but a schedule that's set must be valid.
@@ -282,6 +290,7 @@ export async function requestRun(context: Context, ref: string): Promise<{ reque
   if (row.id !== wanted) throw new Error(`no automation ${wanted} in Notion (${number} is ${row.id})`)
   if (row.status === "Archived") throw new Error(`${row.id} is Archived, so it never runs; set its Status to Disabled or Enabled to run it`)
   if (row.assignees.length !== 1 || row.assignees[0] !== config.assignee) throw new Error(`${row.id}: Assignee must be this installation's assignee, ${config.assignee}`)
+  if (!agentOn(config, row.agent)) throw new Error(`${row.id} runs on ${row.agent}, which is turned off in the config ("agents": { "${agentKey(row.agent)}": { "enabled": false } })`)
   const now = new Date()
   const definition = await buildDefinition(notion, paths, page, row, { now, since: now.toISOString() })
   if (definition.schedule) definition.schedule = formatSchedule(parseSchedule(definition.schedule))

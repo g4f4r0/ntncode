@@ -151,3 +151,20 @@ test("a broken scheduler state file is set aside, never a crash loop", async () 
   assert.equal(JSON.parse(fs.readFileSync(path.join(paths.state, "scheduler.json"), "utf8")).version, 1)
   assert.equal(dueOccurrence({ schedule: DAILY_8, since: "not a date" }, "nope", at("2026-11-15T07:00:30Z")), "2026-11-15T07:00:00.000Z", "a bad time is ignored, not NaN")
 })
+
+test("while its section is off, a task's occurrences pass unrun, so turning it back on never fires one it missed", async () => {
+  const paths = tempHome()
+  const controller = new AbortController()
+  const clock = ["2026-11-14T10:00:10Z", "2026-11-14T10:00:40Z", "2026-11-14T10:01:05Z", "2026-11-14T10:01:10Z"]
+  const offAt = [true, false, false, false]
+  let index = 0
+  const starts: string[] = []
+  const task: Task = { id: "AUT-1", kind: "run", schedule: "DTSTART:20261114T100000Z\nRRULE:FREQ=MINUTELY", since: "2026-11-14T09:00:00.000Z", run: async (_context, fire) => (starts.push(fire.at), []) }
+  const manual: Task = { id: "AUT-1#req", group: "AUT-2", kind: "run", schedule: "DTSTART:20261114T100000Z", since: null, runWhenOff: true, run: async () => (starts.push("manual"), []) }
+  const module: Module = { name: "automations", tasks: () => [task, manual] }
+  const ticker: Module = { name: "ticker", tasks: () => [], serve: { tick: async () => { index += 1; if (index >= clock.length) controller.abort(); return [] } } }
+  const now = () => at(clock[Math.min(index, clock.length - 1)]!)
+  const load = (time: Date) => testContext(paths, fakeNotion({}), { off: offAt[Math.min(index, clock.length - 1)] ? ["automations"] : [] }, time) as Context
+  await serve({ paths, modules: [module, ticker], log: () => {}, load, tickMs: 1, signal: controller.signal, now })
+  assert.deepEqual(starts, ["manual", "2026-11-14T10:01:00.000Z"], "10:00 passed while off; a queued manual request still runs, to report it was skipped; 10:01 runs")
+})

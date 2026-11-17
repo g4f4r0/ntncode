@@ -3,7 +3,7 @@ import path from "node:path"
 import { z } from "zod"
 import type { Paths } from "../shared/config.ts"
 import { acquireLock, readValid, writeJson } from "../shared/files.ts"
-import type { Context, Module, Result, Task } from "../shared/module.ts"
+import { activeModules, type Context, type Module, type Result, type Task } from "../shared/module.ts"
 import { isAlive } from "../shared/process.ts"
 import { nextAfter, parseSchedule } from "./rrule.ts"
 
@@ -131,7 +131,7 @@ export async function serve(options: ServeOptions): Promise<void> {
   try {
     {
       const context = options.load(clock())
-      for (const module of modules) {
+      for (const module of activeModules(context.config, modules)) {
         try {
           report(`${module.name}.start`, (await module.serve?.start?.(context)) ?? [])
         } catch (error) {
@@ -150,19 +150,23 @@ export async function serve(options: ServeOptions): Promise<void> {
       if (context) {
         const tasks: Task[] = []
         let complete = true
+        const active = new Set(activeModules(context.config, modules))
         for (const module of modules) {
           try {
-            tasks.push(...module.tasks(context))
+            const listed = module.tasks(context)
+            tasks.push(...(active.has(module) ? listed : listed.map((task) => (task.runWhenOff ? task : { ...task, off: `${module.name} is turned off in the config` }))))
           } catch (error) {
             complete = false
-            log({ event: "error", task: `${module.name}.tasks`, error: (error as Error).message })
+            if (active.has(module)) log({ event: "error", task: `${module.name}.tasks`, error: (error as Error).message })
           }
         }
         const due: { task: Task; at: string }[] = []
         for (const task of tasks) {
           try {
             const at = dueOccurrence(task, state.tasks[task.id]?.last ?? null, now)
-            if (at) due.push({ task, at })
+            // A task that's off lets the occurrence pass, so it doesn't fire late when it's turned back on.
+            if (at && task.off) state.tasks[task.id] = { last: at }
+            else if (at) due.push({ task, at })
           } catch (error) {
             log({ event: "error", task: task.id, error: `bad schedule: ${(error as Error).message}` })
           }
@@ -217,7 +221,7 @@ export async function serve(options: ServeOptions): Promise<void> {
           )
         }
 
-        for (const module of modules) {
+        for (const module of activeModules(context.config, modules)) {
           try {
             report(`${module.name}.tick`, (await module.serve?.tick?.(context)) ?? [])
           } catch (error) {

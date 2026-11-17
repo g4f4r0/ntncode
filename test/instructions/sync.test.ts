@@ -172,3 +172,87 @@ test("a file written in an older format is written again, though its page wasn't
   assert.equal(calls.markdown, 2, "and once recorded in the current format, it is trusted again")
   assert.ok(fs.readFileSync(file, "utf8").includes("Notion Code replaces this file"))
 })
+
+const SOURCE = "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
+
+/** An Instructions data source with these rows, and a Projects row for each project folder named. */
+function sourceNotion(rows: { id: string; title: string; type: string; project?: string[]; trash?: boolean }[], projects: Record<string, string>) {
+  const pages = (id: string) => rows.find((row) => row.id === id)
+  const notion: Notion = baseNotion({
+    async queryDataSource(source) {
+      assert.equal(source, SOURCE)
+      return rows.map((row) => ({
+        id: row.id,
+        in_trash: row.trash,
+        properties: { Name: { type: "title", title: [{ plain_text: row.title }] }, Type: { type: "select", select: row.type ? { name: row.type } : null }, Project: { type: "relation", relation: (row.project ?? []).map((id) => ({ id })) } },
+      }))
+    },
+    async getPage(id) {
+      const row = pages(id)
+      if (row) {
+        const page: NotionPage = { id, url: `https://app.notion.com/p/${id}`, last_edited_time: "2026-11-14T08:00:00.000Z", properties: { Name: { type: "title", title: [{ plain_text: row.title }] } } }
+        return page
+      }
+      if (id in projects) {
+        const page: NotionPage = { id, properties: { Name: { type: "title", title: [{ plain_text: id }] }, Path: { type: "rich_text", rich_text: projects[id] ? [{ plain_text: projects[id] }] : [] } } }
+        return page
+      }
+      throw new Error(`no page ${id}`)
+    },
+    async getPageMarkdown(id) {
+      return `${pages(id)!.title} rules.`
+    },
+  })
+  return notion
+}
+
+test("with an Instructions source, its Global row is ~/.agents/AGENTS.md and each Project row the AGENTS.md in its Path", async () => {
+  const { paths } = setup()
+  fs.mkdirSync(path.join(paths.projects, "acme/theme"), { recursive: true })
+  json(path.join(paths.projects, "acme/notion.json"), { instructions: PAGE }) // only a marker now: the source wins
+  const notion = sourceNotion(
+    [
+      { id: "global", title: "Global", type: "Global" },
+      { id: "acme", title: "Acme", type: "Project", project: ["p-acme"] },
+      { id: "theme", title: "Acme theme", type: "Project", project: ["p-theme"] },
+      { id: "runs", title: "Automations", type: "Automations" },
+      { id: "old", title: "Old", type: "Project", project: ["p-acme"], trash: true },
+    ],
+    { "p-acme": "acme", "p-theme": "acme/theme" },
+  )
+  const results = await syncInstructions(notion, paths, { source: SOURCE, now: later })
+  assert.deepEqual(results.map((result) => [result.status, path.relative(paths.home, result.path)]), [["written", ".agents/AGENTS.md"], ["written", "projects/acme/AGENTS.md"], ["written", "projects/acme/theme/AGENTS.md"]])
+  assert.ok(fs.readFileSync(path.join(paths.projects, "acme/AGENTS.md"), "utf8").endsWith("\n\nAcme rules.\n"))
+})
+
+test("an Instructions row that can't be placed is reported and nothing is guessed", async () => {
+  const { paths } = setup()
+  const notion = sourceNotion(
+    [
+      { id: "g1", title: "Global", type: "Global" },
+      { id: "g2", title: "Global copy", type: "Global" },
+      { id: "missing", title: "Somomu", type: "Project", project: ["p-missing"] },
+      { id: "nopath", title: "No path", type: "Project", project: ["p-nopath"] },
+      { id: "none", title: "No project", type: "Project" },
+      { id: "a1", title: "Acme", type: "Project", project: ["p-acme"] },
+      { id: "a2", title: "Acme again", type: "Project", project: ["p-acme"] },
+      { id: "untyped", title: "Untyped", type: "" },
+    ],
+    { "p-missing": "somomu", "p-nopath": "", "p-acme": "acme" },
+  )
+  const results = await syncInstructions(notion, paths, { source: SOURCE, now: later })
+  assert.equal(results.length, 8)
+  assert.ok(results.every((result) => result.status === "failed"), JSON.stringify(results))
+  const details = results.map((result) => result.detail).join("\n")
+  for (const hint of [/one of 2 Global rows/u, /projects\/somomu doesn't exist/u, /has no Path/u, /exactly one project, not 0/u, /2 Instructions rows write this file/u, /Type: is empty/u]) assert.match(details, hint)
+  assert.equal(fs.existsSync(path.join(paths.agents, "AGENTS.md")), false)
+  assert.equal(fs.existsSync(path.join(paths.projects, "acme/AGENTS.md")), false)
+})
+
+test("when the Instructions source can't be read, every file is kept", async () => {
+  const { paths } = setup()
+  const notion = baseNotion({ queryDataSource: async () => { throw new Error("Notion is down") } })
+  const results = await syncInstructions(notion, paths, { source: SOURCE, now: later })
+  assert.deepEqual(results.map((result) => result.status), ["failed"])
+  assert.match(results[0]!.detail, /Notion is down; every file kept/u)
+})

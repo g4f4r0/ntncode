@@ -1,4 +1,4 @@
-import type { Config, Paths } from "./config.ts"
+import { isOn, type Config, type Paths, type Section } from "./config.ts"
 import type { Notion } from "./notion.ts"
 
 /**
@@ -28,6 +28,13 @@ export interface Task {
   since: string | null
   /** Run tasks with the same group never run at the same time; by default the group is the ID. */
   group?: string
+  /**
+   * Why the config turns the task off. The scheduler lets its occurrences pass without running them, so turning it back
+   * on never fires one it missed while it was off.
+   */
+  off?: string
+  /** Runs even while its section is off, such as a queued manual request, so it can report that it was skipped. */
+  runWhenOff?: boolean
   run(context: Context, fire: Fire): Promise<Result[]>
 }
 
@@ -93,3 +100,6 @@ export const needsAttention = (result: Result) => result.status === "failed" || 
 export function show(paths: Pick<Paths, "home">, file: string): string {
   return file === paths.home ? "~" : file.startsWith(`${paths.home}/`) ? `~/${file.slice(paths.home.length + 1)}` : file
 }
+
+/** The modules the config leaves on: one turned off runs no task, no upkeep and no check. */
+export const activeModules = (config: Config, modules: Module[]) => modules.filter((module) => isOn(config, module.name as Section))

@@ -4,7 +4,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { test } from "node:test"
 import { definitionsFolder, readDefinitions, syncAutomations } from "../../src/automations/definitions.ts"
-import { requestRun } from "../../src/automations/index.ts"
+import { automations, requestRun } from "../../src/automations/index.ts"
 import { statePath } from "../../src/scheduler/serve.ts"
 import { EMPTY_CONFIG, type Config } from "../../src/shared/config.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
@@ -13,7 +13,7 @@ import { fakeNotion, tempHome, testContext } from "../helpers.ts"
 import { automationPage, BOT, OWNER, PROJECT, projectPage, type RowInput } from "./fixtures.ts"
 
 const SOURCE = "1e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
-const config: Config = { ...EMPTY_CONFIG, assignee: OWNER, automations: { automations: SOURCE, runs: SOURCE, instructions: null } }
+const config: Config = { ...EMPTY_CONFIG, assignee: OWNER, automations: { source: SOURCE, runs: SOURCE } }
 
 function setup() {
   const paths = tempHome()
@@ -200,4 +200,37 @@ test("ntncode run starts a Disabled row for a rehearsal but never an Archived on
   const context = (status: "Disabled" | "Archived") => testContext(paths, notionWith([{ status }]).notion, config)
   assert.equal((await requestRun(context("Disabled"), "AUT-12")).definition.id, "AUT-12")
   await assert.rejects(requestRun(context("Archived"), "AUT-12"), /AUT-12 is Archived, so it never runs/u)
+})
+
+test("a row whose agent is turned off keeps its file, and its scheduled task is off, so it neither runs nor fires late", async () => {
+  const paths = setup()
+  const off: Config = { ...config, agents: { ...config.agents, off: ["claude-code"] } }
+  const results = await syncAutomations(notionWith([{}]).notion, paths, off, { now: at("2026-11-14T09:00:00Z") })
+  assert.deepEqual(results.map((result) => result.status), ["written"])
+  const listed = automations.tasks(testContext(paths, fakeNotion({}), off)).find((task) => task.id === "AUT-12")!
+  assert.equal(listed.off, "claude-code is turned off in the config")
+  assert.equal(automations.tasks(testContext(paths, fakeNotion({}), config)).find((task) => task.id === "AUT-12")!.off, undefined)
+})
+
+test("every run's instructions come from the Instructions data source's one Automations row", async () => {
+  const paths = setup()
+  const INSTRUCTIONS = "3a4b5c6d-7e8f-4a9b-8c0d-1e2f3a4b5c6d"
+  const row = (id: string, type: string) => ({ id, properties: { Name: { type: "title", title: [{ plain_text: type }] }, Type: { type: "select", select: { name: type } }, Project: { type: "relation", relation: [] } } })
+  const base = notionWith([{}])
+  const read: string[] = []
+  const notion = { ...base.notion, queryDataSource: async (source: string, body?: Record<string, unknown>) => (source === INSTRUCTIONS ? [row("global", "Global"), row("runs", "Automations")] as NotionPage[] : base.notion.queryDataSource(source, body)), getPageMarkdown: async (id: string) => { read.push(id); return id === "runs" ? "Report in plain words." : "Audit the store." } }
+  await syncAutomations(notion, paths, { ...config, instructions: INSTRUCTIONS }, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(fs.readFileSync(path.join(definitionsFolder(paths), "instructions.md"), "utf8"), "Report in plain words.\n")
+  assert.ok(!read.includes("global"), "the Global row is for AGENTS.md, not runs")
+})
+
+test("run instructions left from an earlier sync are removed when there is no Automations row", async () => {
+  const paths = setup()
+  fs.mkdirSync(definitionsFolder(paths), { recursive: true })
+  fs.writeFileSync(path.join(definitionsFolder(paths), "instructions.md"), "old\n")
+  const dry = await syncAutomations(notionWith([]).notion, paths, config, { dryRun: true, now: at("2026-11-14T09:00:00Z") })
+  assert.deepEqual(dry.map((result) => result.status), ["would remove"])
+  assert.ok(fs.existsSync(path.join(definitionsFolder(paths), "instructions.md")))
+  await syncAutomations(notionWith([]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(fs.existsSync(path.join(definitionsFolder(paths), "instructions.md")), false)
 })

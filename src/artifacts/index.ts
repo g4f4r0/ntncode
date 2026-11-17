@@ -9,7 +9,7 @@ export const artifacts: Module = {
   tasks: () => [],
   checks: (context) => {
     if (!context.config.artifacts)
-      return [{ ok: false, level: "warning", name: "artifacts", detail: "ntncode artifact can't publish: the config has no artifacts bucket", fix: `set "artifacts": { "bucketUrl", "publicUrl" } in ${path.basename(context.paths.config)}` }]
+      return [{ ok: false, level: "warning", name: "artifacts", detail: "ntncode artifact can't publish: the config has no artifacts bucket", fix: `set "artifacts": { "bucketUrl": "<S3 endpoint>/<bucket>", "publicUrl": "<public address>" } in ${path.basename(context.paths.config)}` }]
     const missing = KEY_NAMES.filter((name) => !readSecret(context.paths.secrets, name))
     return [
       missing.length
