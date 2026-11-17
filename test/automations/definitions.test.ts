@@ -1,12 +1,15 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import path from "node:path"
 import { test } from "node:test"
 import { definitionsFolder, readDefinitions, syncAutomations } from "../../src/automations/definitions.ts"
+import { requestRun } from "../../src/automations/index.ts"
+import { statePath } from "../../src/scheduler/serve.ts"
 import { EMPTY_CONFIG, type Config } from "../../src/shared/config.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
 import { dueOccurrence } from "../../src/scheduler/serve.ts"
-import { fakeNotion, tempHome } from "../helpers.ts"
+import { fakeNotion, tempHome, testContext } from "../helpers.ts"
 import { automationPage, BOT, OWNER, PROJECT, projectPage, type RowInput } from "./fixtures.ts"
 
 const SOURCE = "1e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"
@@ -19,7 +22,7 @@ function setup() {
 }
 
 /** A Notion with these rows; records the query filter and markdown reads. */
-function notionWith(rows: RowInput[], prompt = "Audit the store.") {
+function notionWith(rows: RowInput[], prompt = "Audit the store.", projectPath = "acme") {
   const calls = { filters: [] as unknown[], markdown: 0 }
   const pages: NotionPage[] = rows.map((row) => automationPage(row))
   const notion = fakeNotion({
@@ -29,7 +32,7 @@ function notionWith(rows: RowInput[], prompt = "Audit the store.") {
     },
     getPage: async (id) => {
       assert.equal(id, PROJECT)
-      return projectPage("acme")
+      return projectPage(projectPath)
     },
     getPageMarkdown: async () => {
       calls.markdown += 1
@@ -85,8 +88,8 @@ test("a row last edited by anyone but the assignee never becomes runnable, and a
   assert.equal(readDefinitions(paths).definitions[0]!.prompt, "Old prompt.")
 })
 
-test("disabling always takes effect, whoever did it; so does trashing or giving it another assignee", async () => {
-  for (const change of [{ status: "Disabled" as const, editedBy: BOT }, { trash: true }, { owners: [BOT] }]) {
+test("disabling or archiving always takes effect, whoever did it; so does trashing or giving it another assignee", async () => {
+  for (const change of [{ status: "Disabled" as const, editedBy: BOT }, { status: "Archived" as const, editedBy: BOT }, { trash: true }, { owners: [BOT] }]) {
     const paths = setup()
     await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
     const rows = "owners" in change ? [] : [change]
@@ -128,7 +131,7 @@ test("each agent refuses the model and effort it can't run, under the property t
   for (const row of [{ agent: "OpenCode", model: "claude-opus-5-5" }, { agent: "Codex", effort: "High" }] as RowInput[]) assert.equal((await sync(row)).status, "written", JSON.stringify(row))
 })
 
-test("a project without a Folder, or one missing on disk, an empty prompt and two owners are refused", async () => {
+test("a project without a Path, or one missing on disk, an empty prompt and two owners are refused", async () => {
   const paths = tempHome()
   const missing = await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
   assert.match(missing[0]!.detail, /doesn't exist on this machine/u)
@@ -153,4 +156,48 @@ test("a failed query changes nothing; no assignee runs nothing; a dry run writes
   const dry = await syncAutomations(notionWith([{}]).notion, fresh, config, { dryRun: true })
   assert.equal(dry[0]!.status, "would write")
   assert.equal(fs.existsSync(definitionsFolder(fresh)), false)
+})
+
+/** A folder that's a clone of `repository`, as far as git can tell. */
+function clone(directory: string, repository: string) {
+  fs.mkdirSync(directory, { recursive: true })
+  execFileSync("git", ["init", "-q", directory])
+  execFileSync("git", ["-C", directory, "remote", "add", "origin", `git@github.com:${repository}.git`])
+}
+
+test("a project's Path can hold subfolders, and a Repository runs in its clone inside the Path", async () => {
+  const paths = tempHome()
+  fs.mkdirSync(path.join(paths.projects, "acme/web"), { recursive: true })
+  await syncAutomations(notionWith([{}], undefined, "acme/web").notion, paths, config)
+  assert.equal(readDefinitions(paths).definitions[0]!.directory, path.join(paths.projects, "acme/web"))
+
+  clone(path.join(paths.projects, "acme/acme-theme"), "Acme-Co/acme-theme")
+  const results = await syncAutomations(notionWith([{ repository: "acme-co/acme-theme", edited: "2026-11-14T09:00:00.000Z" }]).notion, paths, config)
+  assert.equal(results[0]!.status, "written", results[0]!.detail)
+  assert.equal(readDefinitions(paths).definitions[0]!.directory, path.join(paths.projects, "acme/acme-theme"))
+})
+
+test("a bad Path or Repository is refused under the property to fix, and nothing runs somewhere unexpected", async () => {
+  const paths = setup()
+  const sync = async (row: RowInput, projectPath = "acme") => (await syncAutomations(notionWith([row], undefined, projectPath).notion, paths, config))[0]!.detail
+  for (const bad of ["/etc", "../elsewhere", "acme/../..", "acme/.git"]) assert.match(await sync({}, bad), /Path ".*" must be a folder under/u, bad)
+  assert.match(await sync({}, "acme/missing"), /acme\/missing doesn't exist on this machine/u)
+  assert.match(await sync({ repository: "acme-theme" }), /Repository: "acme-theme" must be owner\/repo/u)
+  assert.match(await sync({ repository: "acme-co/.." }), /Repository: "acme-co\/\.\." must be owner\/repo/u)
+  assert.match(await sync({ repository: "acme-co/acme-theme", project: null }), /Repository: needs a Project/u)
+  assert.match(await sync({ repository: "acme-co/acme-theme" }), /acme-theme doesn't exist on this machine; clone acme-co\/acme-theme there/u)
+  fs.mkdirSync(path.join(paths.projects, "acme/plain"))
+  assert.match(await sync({ repository: "acme-co/plain" }), /plain isn't a clone, not of acme-co\/plain/u)
+  clone(path.join(paths.projects, "acme/fork"), "someone/fork")
+  assert.match(await sync({ repository: "acme-co/fork" }), /fork is a clone of someone\/fork, not of acme-co\/fork/u)
+  assert.equal(readDefinitions(paths).definitions.length, 0)
+})
+
+test("ntncode run starts a Disabled row for a rehearsal but never an Archived one", async () => {
+  const paths = setup()
+  fs.mkdirSync(paths.state, { recursive: true })
+  fs.writeFileSync(statePath(paths), JSON.stringify({ version: 1, pid: process.pid, startedAt: new Date().toISOString(), heartbeat: new Date().toISOString(), tasks: {} }))
+  const context = (status: "Disabled" | "Archived") => testContext(paths, notionWith([{ status }]).notion, config)
+  assert.equal((await requestRun(context("Disabled"), "AUT-12")).definition.id, "AUT-12")
+  await assert.rejects(requestRun(context("Archived"), "AUT-12"), /AUT-12 is Archived, so it never runs/u)
 })
