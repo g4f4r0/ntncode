@@ -163,8 +163,11 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
     if (request) writeJson(resultPath(paths, request), RunResult.parse({ request, automation: definition.id, run: null, url: null, error: null, report: null, session: null, resume: null, ...result }))
   }
   if (!config.automations) return [{ status: "failed", path: label, detail: "the config has no automations data sources" }]
-  if (!isOn(config, "automations")) return [{ status: "skipped", path: label, detail: 'automations are turned off in the config ("automations": { "enabled": false }); not run' }]
-  if (!agentOn(config, definition.agent)) return [{ status: "skipped", path: label, detail: `${agentKey(definition.agent)} is turned off in the config; not run` }]
+  const off = !isOn(config, "automations") ? 'automations are turned off in the config ("automations": { "enabled": false })' : !agentOn(config, definition.agent) ? `${agentKey(definition.agent)} is turned off in the config` : null
+  if (off) {
+    report({ status: "Skipped", error: off })
+    return [{ status: "skipped", path: label, detail: `${off}; not run` }]
+  }
   const runs = new Runs(context.notion, input.writer ?? createNotionWriter(context.token), config.automations.runs)
   const startedAt = new Date().toISOString()
   const key = runKey(definition.id, trigger === "Scheduled" ? input.at : startedAt)

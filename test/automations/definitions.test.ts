@@ -4,7 +4,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { test } from "node:test"
 import { definitionsFolder, readDefinitions, syncAutomations } from "../../src/automations/definitions.ts"
-import { requestRun } from "../../src/automations/index.ts"
+import { automations, requestRun } from "../../src/automations/index.ts"
 import { statePath } from "../../src/scheduler/serve.ts"
 import { EMPTY_CONFIG, type Config } from "../../src/shared/config.ts"
 import type { NotionPage } from "../../src/shared/notion.ts"
@@ -202,19 +202,14 @@ test("ntncode run starts a Disabled row for a rehearsal but never an Archived on
   await assert.rejects(requestRun(context("Archived"), "AUT-12"), /AUT-12 is Archived, so it never runs/u)
 })
 
-test("a row whose agent is turned off in the config isn't scheduled, and an existing file is removed", async () => {
+test("a row whose agent is turned off keeps its file, and its scheduled task is off, so it neither runs nor fires late", async () => {
   const paths = setup()
   const off: Config = { ...config, agents: { ...config.agents, off: ["claude-code"] } }
-  const fresh = await syncAutomations(notionWith([{}]).notion, paths, off, { now: at("2026-11-14T09:00:00Z") })
-  assert.equal(fresh[0]!.status, "failed")
-  assert.match(fresh[0]!.detail, /claude-code is turned off in the config/u)
-  assert.equal(readDefinitions(paths).definitions.length, 0)
-
-  await syncAutomations(notionWith([{}]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
-  assert.equal(readDefinitions(paths).definitions.length, 1)
-  const removed = await syncAutomations(notionWith([{}]).notion, paths, off, { now: at("2026-11-14T09:10:00Z") })
-  assert.deepEqual(removed.map((result) => result.status), ["removed"])
-  assert.equal(readDefinitions(paths).definitions.length, 0)
+  const results = await syncAutomations(notionWith([{}]).notion, paths, off, { now: at("2026-11-14T09:00:00Z") })
+  assert.deepEqual(results.map((result) => result.status), ["written"])
+  const listed = automations.tasks(testContext(paths, fakeNotion({}), off)).find((task) => task.id === "AUT-12")!
+  assert.equal(listed.off, "claude-code is turned off in the config")
+  assert.equal(automations.tasks(testContext(paths, fakeNotion({}), config)).find((task) => task.id === "AUT-12")!.off, undefined)
 })
 
 test("every run's instructions come from the Instructions data source's one Automations row", async () => {
@@ -227,4 +222,15 @@ test("every run's instructions come from the Instructions data source's one Auto
   await syncAutomations(notion, paths, { ...config, instructions: INSTRUCTIONS }, { now: at("2026-11-14T09:00:00Z") })
   assert.equal(fs.readFileSync(path.join(definitionsFolder(paths), "instructions.md"), "utf8"), "Report in plain words.\n")
   assert.ok(!read.includes("global"), "the Global row is for AGENTS.md, not runs")
+})
+
+test("run instructions left from an earlier sync are removed when there is no Automations row", async () => {
+  const paths = setup()
+  fs.mkdirSync(definitionsFolder(paths), { recursive: true })
+  fs.writeFileSync(path.join(definitionsFolder(paths), "instructions.md"), "old\n")
+  const dry = await syncAutomations(notionWith([]).notion, paths, config, { dryRun: true, now: at("2026-11-14T09:00:00Z") })
+  assert.deepEqual(dry.map((result) => result.status), ["would remove"])
+  assert.ok(fs.existsSync(path.join(definitionsFolder(paths), "instructions.md")))
+  await syncAutomations(notionWith([]).notion, paths, config, { now: at("2026-11-14T09:00:00Z") })
+  assert.equal(fs.existsSync(path.join(definitionsFolder(paths), "instructions.md")), false)
 })

@@ -4,7 +4,7 @@ import path from "node:path"
 import { promisify } from "node:util"
 import { z } from "zod"
 import { AgentName, AGENTS, Effort } from "../agents/index.ts"
-import { agentKey, agentOn, type Config, type Paths } from "../shared/config.ts"
+import type { Config, Paths } from "../shared/config.ts"
 import { readValid, writeAtomic, writeJson } from "../shared/files.ts"
 import { normalizeNotionMarkdown } from "../shared/markdown.ts"
 import { show, type Result } from "../shared/module.ts"
@@ -181,11 +181,6 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
       results.push({ status: "failed", path: where, detail: `${label}: Assignee must be exactly one person: two installations would race to run it${known ? "; the previous version stays scheduled" : "; not scheduled"}` })
       continue
     }
-    if (!agentOn(config, row.agent)) {
-      if (known) removals.set(known.id, `${label}: ${agentKey(row.agent)} is turned off in the config; no longer scheduled`)
-      else results.push({ status: "failed", path: where, detail: `${label}: ${agentKey(row.agent)} is turned off in the config ("agents": { "${agentKey(row.agent)}": { "enabled": false } }); not scheduled` })
-      continue
-    }
     if (known && known.id !== row.id) removals.set(known.id, `${label}: its ID changed to ${row.id}`)
     const settled = !!known && Date.parse(known.synced) - Date.parse(row.edited) > SETTLED_MS
     if (known && known.id === row.id && known.edited === row.edited && settled) {
@@ -236,11 +231,19 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
     writeJson(file, definition)
     results.push({ status: changed ? "written" : "unchanged", path: file, detail: `${id} ${definition.title}: ${!before ? "newly scheduled" : changed ? "updated from Notion" : "read again; no change"}` })
   }
-  if (!dryRun && instructions !== null) {
-    const file = instructionsPath(paths)
-    if (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== `${instructions}\n`) {
+  const file = instructionsPath(paths)
+  if (instructions !== null && (!fs.existsSync(file) || fs.readFileSync(file, "utf8") !== `${instructions}\n`)) {
+    if (dryRun) results.push({ status: "would write", path: file, detail: "the instructions every run gets, updated in Notion" })
+    else {
       writeAtomic(file, `${instructions}\n`)
       results.push({ status: "written", path: file, detail: "the instructions every run gets, updated from Notion" })
+    }
+  } else if (instructions === null && fs.existsSync(file)) {
+    const detail = config.instructions ? "the Instructions data source has no Automations row, so runs get no run instructions" : 'no "instructions": { "source" } in the config, so runs get no run instructions'
+    if (dryRun) results.push({ status: "would remove", path: file, detail })
+    else {
+      fs.rmSync(file, { force: true })
+      results.push({ status: "removed", path: file, detail })
     }
   }
   if (!dryRun) fs.mkdirSync(workspacePath(paths), { recursive: true })

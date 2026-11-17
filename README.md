@@ -33,7 +33,8 @@ Each row has a Type:
 | `Automations`, at most one row | `automations/instructions.md` in the state folder | every automation run, as its run instructions |
 
 A row whose project has no Path, whose folder doesn't exist, or that writes the same file as another row is reported
-and writes nothing. Rows in Notion's trash are ignored.
+and writes nothing. Rows in Notion's trash are ignored. Each project folder still keeps its `notion.json`, because Codex
+finds a project's root by it; `doctor` names a folder that lacks one.
 
 Without a source, a folder opts in with a `notion.json` that names one Notion page:
 
@@ -339,9 +340,9 @@ Every error has a `message`, and `doctor` adds a `fix` to each failed check.
 | `skills.source` | config | off | The Notion Skills data source |
 | `automations.source`, `automations.runs` | config | off | The Automations and Runs data sources |
 | `agents.mcp` | config | `["notion"]` | The MCP servers every agent that is on must have, signed in |
-| `agents.<agent>.enabled` | config | `true` | `false` turns one agent off: no links, no checks, and its automations aren't scheduled or run. The keys are `claude-code`, `codex`, `opencode`, `t3-code`, `zeron` and `capy` |
+| `agents.<agent>.enabled` | config | `true` | `false` turns one agent off: no links, no checks, and its automations' runs are skipped; `ntncode run` refuses them. The keys are `claude-code`, `codex`, `opencode`, `t3-code`, `zeron` and `capy` |
 | `artifacts` | config | off | The public bucket: `bucketUrl`, its S3 endpoint and bucket name, and `publicUrl`, where it is served |
-| `<section>.enabled` | config | `true` | `false` turns off `instructions`, `skills`, `agents`, `automations` or `artifacts`: it runs nothing and `doctor` skips it, and its other settings stay |
+| `<section>.enabled` | config | `true` | `false` turns off `instructions`, `skills`, `agents`, `automations` or `artifacts`: it runs nothing and `doctor` skips it, and its other settings stay. While a section or agent is off its occurrences pass unrun, so turning it back on never fires one it missed |
 | `onFailure` | config | none | A shell command run when a run fails, or an agent calls `ntncode alert` |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | environment, else `~/.config/secrets.env` | none | The bucket's access key |
 | `XDG_STATE_HOME`, `XDG_CONFIG_HOME` | environment | `~/.local/state`, `~/.config` | Where the state and config folders go |

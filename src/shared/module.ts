@@ -28,6 +28,11 @@ export interface Task {
   since: string | null
   /** Run tasks with the same group never run at the same time; by default the group is the ID. */
   group?: string
+  /**
+   * Why the config turns the task off. The scheduler lets its occurrences pass without running them, so turning it back
+   * on never fires one it missed while it was off.
+   */
+  off?: string
   run(context: Context, fire: Fire): Promise<Result[]>
 }
 

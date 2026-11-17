@@ -5,7 +5,7 @@ import { z } from "zod"
 import { AGENTS } from "../agents/index.ts"
 import { formatSchedule, parseSchedule } from "../scheduler/rrule.ts"
 import { serveEnvNames, serveStatus, upcoming } from "../scheduler/serve.ts"
-import { agentOn, expandHome, isOn } from "../shared/config.ts"
+import { agentKey, agentOn, expandHome, isOn } from "../shared/config.ts"
 import { quarantine, readValid, writeJson } from "../shared/files.ts"
 import { show, SYNC_SCHEDULE, type Check, type Context, type Module, type Result, type Task } from "../shared/module.ts"
 import type { Notion } from "../shared/notion.ts"
@@ -119,6 +119,7 @@ export const automations: Module = {
           kind: "run",
           schedule: definition.schedule!,
           since: definition.since,
+          ...(agentOn(context.config, definition.agent) ? {} : { off: `${agentKey(definition.agent)} is turned off in the config` }),
           run: (ready, fire) => runAutomation({ context: ready, definition, trigger: "Scheduled", at: fire.at, request: null }),
         }),
       )
@@ -232,6 +233,10 @@ async function automationChecks(context: Context): Promise<Check[]> {
   for (const definition of definitions) {
     const agent = AGENTS[definition.agent]
     const issues: string[] = []
+    if (!agentOn(config, definition.agent)) {
+      checks.push({ ok: true, name: `${definition.id} ${definition.title}`, detail: `${agentKey(definition.agent)} is turned off in the config, so each run is skipped` })
+      continue
+    }
     if (!agent.binary(paths)) issues.push(`${definition.agent} isn't installed`)
     if (!fs.existsSync(definition.directory)) issues.push(`${show(paths, definition.directory)} doesn't exist`)
     const next = definition.schedule ? upcoming({ schedule: definition.schedule }, now, 3) : []
@@ -284,6 +289,7 @@ export async function requestRun(context: Context, ref: string): Promise<{ reque
   if (row.id !== wanted) throw new Error(`no automation ${wanted} in Notion (${number} is ${row.id})`)
   if (row.status === "Archived") throw new Error(`${row.id} is Archived, so it never runs; set its Status to Disabled or Enabled to run it`)
   if (row.assignees.length !== 1 || row.assignees[0] !== config.assignee) throw new Error(`${row.id}: Assignee must be this installation's assignee, ${config.assignee}`)
+  if (!agentOn(config, row.agent)) throw new Error(`${row.id} runs on ${row.agent}, which is turned off in the config ("agents": { "${agentKey(row.agent)}": { "enabled": false } })`)
   const now = new Date()
   const definition = await buildDefinition(notion, paths, page, row, { now, since: now.toISOString() })
   if (definition.schedule) definition.schedule = formatSchedule(parseSchedule(definition.schedule))
