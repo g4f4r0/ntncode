@@ -183,6 +183,11 @@ test("a project's Path can hold subfolders, and a Repository runs in its clone i
   const { repository: _, ...older } = JSON.parse(fs.readFileSync(file, "utf8"))
   fs.writeFileSync(file, JSON.stringify(older))
   assert.equal(readDefinitions(paths).definitions[0]!.repository, null)
+  // The next sync reads the unedited row again, so the file gains its repository.
+  const again = await syncAutomations(notionWith([{ repository: "acme-co/acme-theme", edited: "2026-11-14T09:00:00.000Z" }]).notion, paths, config)
+  assert.equal(again[0]!.status, "written", again[0]!.detail)
+  assert.equal(readDefinitions(paths).definitions[0]!.repository, "acme-co/acme-theme")
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).repository, "acme-co/acme-theme")
 })
 
 test("a bad Path or Repository is refused under the property to fix, and nothing runs somewhere unexpected", async () => {
