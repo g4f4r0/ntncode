@@ -80,7 +80,7 @@ async function recoverRuns(context: Context, startup = false): Promise<Result[]>
       continue
     }
     const finishedAt = new Date().toISOString()
-    const error = "Notion Code's scheduler stopped during the run (a restart or a crash), so the agent was stopped too"
+    const error = "ntncode's scheduler stopped during the run (a restart or a crash), so the agent was stopped too"
     try {
       const markdown = renderReport({ agent: inflight.agent, ok: false, reply: "", error: `${error}.`, details: `run ${inflight.id} started ${inflight.startedAt}\nscheduler started again ${finishedAt}; no agent process left to report` })
       await runs.finish(inflight.run, { status: "Failed", startedAt: inflight.startedAt, finishedAt, markdown, session: inflight.session ?? null })

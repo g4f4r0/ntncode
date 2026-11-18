@@ -16,7 +16,7 @@ import { acquireLock, readJson, writeAtomic } from "./shared/files.ts"
 import { activeModules, needsAttention, show, type Check, type Context, type Result } from "./shared/module.ts"
 import { createNotion } from "./shared/notion.ts"
 
-const VERSION = "0.4.2"
+const VERSION = "0.4.3"
 
 /** The commands, their options and what they print: `ntncode help` returns this, so an agent can learn the CLI. */
 const COMMANDS = {
@@ -27,7 +27,7 @@ const COMMANDS = {
   },
   doctor: {
     usage: "ntncode doctor",
-    does: "Checks everything Notion Code depends on: the token and config, the Notion databases' properties, every agent's links and MCP servers (configured and signed in), the scheduler, and every automation with its next three runs.",
+    does: "Checks everything ntncode depends on: the token and config, the Notion databases' properties, every agent's links and MCP servers (configured and signed in), the scheduler, and every automation with its next three runs.",
     prints: "{ ok, command, checks: [{ ok, level, name, detail, fix }], summary: { checks, errors, warnings } }",
   },
   serve: {
@@ -284,7 +284,7 @@ function help(): number {
     ok: true,
     command: "help",
     version: VERSION,
-    about: "Notion Code (ntncode): Notion as the source of truth for every coding agent. Output is JSON, for agents.",
+    about: "ntncode: Notion as the source of truth for every coding agent. Output is JSON, for agents.",
     commands: COMMANDS,
     exitCodes: { 0: "ok", 1: "needs attention: a failed or skipped result, a doctor error, or a failed run", 2: "usage: bad arguments, no token, or an invalid config" },
     files: {

@@ -54,7 +54,7 @@ export function failureDetails(result: CommandResult, fields: Record<string, unk
  */
 export function explainFailure(error: string, agent: string): string {
   const known: [RegExp, string][] = [
-    [/scheduler stopped/iu, "Notion Code's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual."],
+    [/scheduler stopped/iu, "ntncode's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual."],
     [/not logged in|please run \/login|401|invalid api key|authenticat|unauthori[sz]ed/iu, `${agent} couldn't sign in to its model provider, so it didn't do the work. Check the key in ~/.config/notion-code/agents.env, restart ntncode.service, and run ntncode doctor.`],
     [/unknown (?:provider for )?model|model[^\n]{0,40}(?:not found|does not exist|isn't supported|not supported)|invalid model/iu, `The model provider doesn't know the model this automation asks for, so ${agent} didn't do the work. Pick a model from the Model list in Notion.`],
     [/max_turns|turn limit/iu, `${agent} stopped at its turn limit before it finished. Split the prompt into smaller steps, or give it fewer things to do in one run.`],

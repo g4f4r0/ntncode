@@ -145,7 +145,7 @@ export async function sourceMappings(notion: Notion, paths: Paths, source: strin
 
 function header(title: string, url: string | undefined): string {
   const name = title ? `"${title.replaceAll("--", "-")}"` : "a page"
-  return `${HEADER_PREFIX}: ${name}${url ? ` (${url})` : ""}. Edit it in Notion; Notion Code replaces this file on every sync. -->`
+  return `${HEADER_PREFIX}: ${name}${url ? ` (${url})` : ""}. Edit it in Notion; ntncode replaces this file on every sync. -->`
 }
 
 interface Planned {

@@ -2,7 +2,7 @@ import { isOn, type Config, type Paths, type Section } from "./config.ts"
 import type { Notion } from "./notion.ts"
 
 /**
- * A domain plugs into Notion Code as a module: the tasks it runs and the checks `doctor` makes. Adding a domain means
+ * A domain plugs into ntncode as a module: the tasks it runs and the checks `doctor` makes. Adding a domain means
  * a folder that exports one Module, and one line in src/modules.ts.
  */
 export interface Module {

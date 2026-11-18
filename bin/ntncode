@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs Notion Code with Bun, which runs the TypeScript directly; no build step.
+# Runs ntncode with Bun, which runs the TypeScript directly; no build step.
 set -euo pipefail
 HERE="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 BUN="$(command -v bun || ls "$HOME/.bun/bin/bun" "$HOME/.local/node/bin/bun" 2>/dev/null | head -1)"

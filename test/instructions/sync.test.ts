@@ -170,7 +170,7 @@ test("a file written in an older format is written again, though its page wasn't
   const again = await syncInstructions(notion, paths, { now: later })
   assert.equal(again[0]!.status, "unchanged")
   assert.equal(calls.markdown, 2, "and once recorded in the current format, it is trusted again")
-  assert.ok(fs.readFileSync(file, "utf8").includes("Notion Code replaces this file"))
+  assert.ok(fs.readFileSync(file, "utf8").includes("ntncode replaces this file"))
 })
 
 const SOURCE = "7c8d9e0f-1a2b-4c3d-8e4f-5a6b7c8d9e0f"

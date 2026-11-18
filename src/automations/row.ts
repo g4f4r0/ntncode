@@ -202,7 +202,7 @@ export interface Row {
   status: string | null
   assignees: string[]
   projects: string[]
-  /** GitHub's owner/repo, such as g4f4r0/notion-code: the run starts in that repository's folder inside the project's Path. */
+  /** GitHub's owner/repo, such as g4f4r0/ntncode: the run starts in that repository's folder inside the project's Path. */
   repository: string | null
   agent: AgentName
   model: string | null
@@ -223,7 +223,7 @@ export function readRow(page: NotionPage, { schedule = true } = {}): { row: Row 
   const projects = read.relation("Project")
   if (projects.length > 1) read.fail("Project", "link one project at most")
   const repository = read.text("Repository") || null
-  if (repository && !REPOSITORY.test(repository)) read.fail("Repository", `"${repository}" must be owner/repo, such as g4f4r0/notion-code`)
+  if (repository && !REPOSITORY.test(repository)) read.fail("Repository", `"${repository}" must be owner/repo, such as g4f4r0/ntncode`)
   else if (repository && !projects.length) read.fail("Repository", "needs a Project, whose Path holds the repository's folder")
   const agentName = read.select("Agent")
   const agent = AgentName.safeParse(agentName)
