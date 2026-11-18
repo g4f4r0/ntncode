@@ -34,6 +34,8 @@ export const Definition = z.strictObject({
   project: z.strictObject({ page: z.string(), name: z.string(), folder: z.string() }).nullable(),
   /** The folder the agent runs in: the project's Path, or its Repository inside it, or the state's workspace for no project. */
   directory: z.string(),
+  /** GitHub's owner/repo the run starts in, from the row's Repository; null for the project's Path. Files from before 0.4.1 lack it. */
+  repository: z.string().nullable().default(null),
   /** iCalendar text; null for a manual run of a row with no valid schedule. */
   schedule: z.string().nullable(),
   timeZone: z.string().nullable(),
@@ -125,6 +127,7 @@ export async function buildDefinition(notion: Notion, paths: Paths, page: Notion
     effort: row.effort,
     project,
     directory,
+    repository: row.repository,
     schedule: row.schedule,
     timeZone: zoneOf(page),
     prompt,

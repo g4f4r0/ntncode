@@ -115,7 +115,8 @@ which only Notion Code writes.
 | Status | Status: `In progress`, `Completed`, `Failed` | |
 | Date | Date range | From start to finish |
 | Agent, Model, Effort | Selects | What ran it, set when the run starts. Model shows the option name, such as `Opus 5.5`; empty for the agent's default |
-| Folder | Text | Where it ran, with `~` for home, set when the run starts |
+| Path | Text | The folder it ran in, with `~` for home, set when the run starts |
+| Repository | Text | The automation's Repository, `owner/repo`, set when the run starts; empty when it ran in the project's Path |
 | Session | Text | The agent's session ID, to resume it; empty when there was none |
 | Duration, Cost, Input tokens, Cached tokens, Output tokens | Numbers | Seconds, the agent's cost estimate, and its token counts, exact, for views that sum or chart them; empty when the agent reports none |
 | Page body | | The agent's final reply, as written. A failed run says what happened in plain words, then the exact error in a code block, then any reply before it |
