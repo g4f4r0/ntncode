@@ -1,18 +1,17 @@
 import assert from "node:assert/strict"
 import fs from "node:fs"
-import os from "node:os"
 import path from "node:path"
 import { test } from "node:test"
 import type { Paths } from "../../src/shared/config.ts"
 import type { Notion, NotionPage } from "../../src/shared/notion.ts"
 import { HEADER_PREFIX, parsePageId, syncInstructions } from "../../src/instructions/sync.ts"
-import { fakeNotion as baseNotion } from "../helpers.ts"
+import { fakeNotion as baseNotion, tempDir } from "../helpers.ts"
 
 const PAGE = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 const GLOBAL = "5f6e7d8c-9b0a-4f1e-8d2c-3b4a5f6e7d8c"
 
 function setup() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "notion-agents-"))
+  const home = tempDir()
   const paths: Paths = { home, agents: path.join(home, ".agents"), projects: path.join(home, "projects"), state: path.join(home, "state"), config: path.join(home, "config.json"), secrets: path.join(home, "secrets.env") }
   fs.mkdirSync(paths.agents, { recursive: true })
   fs.mkdirSync(path.join(paths.projects, "acme"), { recursive: true })

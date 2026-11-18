@@ -5,9 +5,18 @@ import { EMPTY_CONFIG, type Config, type Paths } from "../src/shared/config.ts"
 import type { Context } from "../src/shared/module.ts"
 import type { Notion } from "../src/shared/notion.ts"
 
+/** Every throwaway home lives in one folder per test run, removed when the run exits. */
+const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), "ntncode-test-"))
+process.on("exit", () => fs.rmSync(ROOT, { recursive: true, force: true }))
+
+/** An empty throwaway folder, removed with the rest when the test run exits. */
+export function tempDir(): string {
+  return fs.mkdtempSync(path.join(ROOT, "home-"))
+}
+
 /** A throwaway home with ~/.agents and ~/projects. */
 export function tempHome(): Paths {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "notion-code-"))
+  const home = tempDir()
   const paths: Paths = {
     home,
     agents: path.join(home, ".agents"),
