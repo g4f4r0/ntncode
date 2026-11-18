@@ -16,7 +16,7 @@ import { acquireLock, readJson, writeAtomic } from "./shared/files.ts"
 import { activeModules, needsAttention, show, type Check, type Context, type Result } from "./shared/module.ts"
 import { createNotion } from "./shared/notion.ts"
 
-const VERSION = "0.4.3"
+const VERSION = "0.4.4"
 
 /** The commands, their options and what they print: `ntncode help` returns this, so an agent can learn the CLI. */
 const COMMANDS = {

@@ -87,6 +87,11 @@ export const codex: Agent = {
       }
       if (event.type === "thread.started" && event.thread_id) session = event.thread_id
       if (event.type === "item.completed" && event.item?.type === "agent_message") reply = event.item.text ?? ""
+      // A turn that completes recovered from any earlier error event, such as "Reconnecting... 1/5".
+      if (event.type === "turn.completed") {
+        failure = null
+        failedEvent = null
+      }
       // Codex counts cached tokens inside input_tokens, and gives no cost.
       if (event.type === "turn.completed" && event.usage) {
         usage ??= { input: 0, cached: 0, output: 0, costUsd: null }
@@ -103,7 +108,7 @@ export const codex: Agent = {
     const resume = session ? `cd ${input.directory} && codex resume ${session}` : null
     const ok = result.code === 0 && !failure && !!session
     const stderr = oneLine(result.stderr.split("\n").filter((line) => !/rmcp::transport/u.test(line)).join(" "))
-    const details = ok ? null : failureDetails(result, { event: failedEvent, "last reply": reply ? oneLine(reply, 1_000) : null })
+    const details = ok ? null : failureDetails(result, { event: failedEvent })
     return { ok, reply, session, resume, usage, details, error: ok ? null : `Codex failed: ${failure ?? result.error ?? (stderr || `exit code ${result.code}`)}` }
   },
 

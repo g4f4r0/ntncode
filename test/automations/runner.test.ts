@@ -223,7 +223,7 @@ test("a failed run is recorded Failed, and the onFailure command gets the detail
   const failed = update as unknown as { properties: Record<string, { number: number | null }> }
   assert.deepEqual([failed.properties.Cost!.number, failed.properties["Input tokens"]!.number], [null, null], "nothing reported, nothing recorded")
   const failedPage = String(writes.find((write) => write.kind === "markdown")!.body)
-  assert.match(failedPage, /^\*\*Failed:\*\* Claude Code stopped at its turn limit before it finished\. [^\n]+\n\n```text\nClaude Code ended with error_max_turns\n```\n$/u)
+  assert.match(failedPage, /^Claude Code stopped at its turn limit before it finished\. [^\n]+\n\n```text\nClaude Code ended with error_max_turns\n```\n$/u)
   const result = JSON.parse(fs.readFileSync(resultPath(paths, "req-1"), "utf8"))
   assert.deepEqual([result.status, result.run, result.error], ["Failed", "RUN-5", "Claude Code ended with error_max_turns"])
 })
@@ -283,7 +283,7 @@ test("a run left in progress by a stopped scheduler is marked Failed when the sc
     globalThis.fetch = original
   }
   assert.ok(sent.some((request) => request.url.endsWith("/pages/run-page") && request.body.includes('"Failed"')))
-  assert.ok(sent.some((request) => request.url.endsWith("/pages/run-page/markdown") && request.body.includes("**Failed:**") && request.body.includes("scheduler stopped") && !request.body.includes("## ")), "a cut-off run gets the same page as any failure")
+  assert.ok(sent.some((request) => request.url.endsWith("/pages/run-page/markdown") && request.body.includes("scheduler restarted or stopped") && request.body.includes("scheduler stopped") && !request.body.includes("## ")), "a cut-off run gets the same page as any failure")
   assert.equal(readInflight(paths).length, 0)
   assert.equal(writes.length, 0)
   void writer
@@ -318,7 +318,7 @@ test("a broken manual request is set aside and never stops the scheduled automat
 
 test("a run's page is the agent's reply as written, and a model ID reads as its Notion option", () => {
   const failed = renderReport({ agent: "Codex", ok: false, reply: "", error: "boom" })
-  assert.equal(failed, "**Failed:** Codex ended with an error before it finished. The details below are what it reported.\n\n```text\nboom\n```\n")
+  assert.equal(failed, "Codex reported an error, so the run counts as failed. The details below are what it reported.\n\n```text\nboom\n```\n")
   assert.deepEqual(["claude-opus-5-5", "claude-fable-5-2", "gpt-6.1-sol", "gpt-6.1-terra-fast", "x/custom"].map(modelLabel), ["Opus 5.5", "Fable 5.2", "GPT-6.1 Sol", "GPT-6.1 Terra Fast", "x/custom"])
   const reply = renderReport({ agent: "Codex", ok: true, reply: "## Summary\nOK\n### Detail\nx", error: null })
   assert.equal(reply, "## Summary\nOK\n### Detail\nx\n", "the agent's headings stay as written")
@@ -327,11 +327,13 @@ test("a run's page is the agent's reply as written, and a model ID reads as its 
 
 test("a failure explains itself in plain words, then shows the exact error and context with secrets masked", () => {
   const page = renderReport({ agent: "Claude Code", ok: false, reply: "I got halfway.", error: "Claude Code ended with success (error): Failed to authenticate. API Error: 401", details: "exit: 1\nstderr (last lines):\nAuthorization: Bearer sk-abcdefghijklmnop123\nntn_1234567890abcdef rejected" })
-  assert.match(page, /\*\*Failed:\*\* Claude Code couldn't sign in to its model provider, so it didn't do the work\./u)
+  assert.match(page, /^Claude Code couldn't sign in to its model provider, so it didn't do the work\./u)
   assert.match(page, /```text\nClaude Code ended with success \(error\): Failed to authenticate\. API Error: 401\n\nexit: 1\nstderr \(last lines\):\nAuthorization: Bearer <redacted>\n<redacted> rejected\n```/u)
-  assert.match(page, /```\n\nThe agent's last reply:\n\nI got halfway\.\n$/u)
+  assert.match(page, /```\n\nThe agent's last reply follows\.\n\nI got halfway\.\n$/u)
+  assert.equal(page.split("I got halfway.").length, 2, "the reply appears once")
   assert.doesNotMatch(page, /sk-abc|ntn_123/u, "no secret reaches Notion")
   assert.equal(redact("key=supersecretvalue1 ok", { MY_API_KEY: "supersecretvalue1" }), "key=<redacted> ok", "a secret from the environment is masked by its value")
+  assert.match(explainFailure("Codex failed: Reconnecting... 5/5 (Selected model is at capacity. Please try a different model.)", "Codex"), /^The model was at capacity and Codex ran out of retries/u)
   assert.match(explainFailure("Codex failed: unknown provider for model gpt-9-missing", "Codex"), /doesn't know the model/u)
   assert.equal(explainFailure("ntncode's scheduler stopped during the run", "Codex"), "ntncode's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual.")
   const fenced = renderReport({ agent: "Codex", ok: false, reply: "", error: "x", details: "output with ``` inside" })
