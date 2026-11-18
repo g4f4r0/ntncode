@@ -178,7 +178,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
       const done = await runs.find(key)
       if (done) return [{ status: "skipped", path: label, detail: `${key} already ran as ${done.id}; not run again` }]
     }
-    run = await runs.start({ key, automation: definition.page, trigger, startedAt, agent: definition.agent, model: definition.model, effort: definition.effort, folder: show(paths, definition.directory) })
+    run = await runs.start({ key, automation: definition.page, trigger, startedAt, agent: definition.agent, model: definition.model, effort: definition.effort, path: show(paths, definition.directory), repository: definition.repository })
   } catch (error) {
     const message = `couldn't record the run in Notion: ${(error as Error).message}`
     report({ status: "Failed", error: message })

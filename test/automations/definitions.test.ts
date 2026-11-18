@@ -170,11 +170,19 @@ test("a project's Path can hold subfolders, and a Repository runs in its clone i
   fs.mkdirSync(path.join(paths.projects, "acme/web"), { recursive: true })
   await syncAutomations(notionWith([{}], undefined, "acme/web").notion, paths, config)
   assert.equal(readDefinitions(paths).definitions[0]!.directory, path.join(paths.projects, "acme/web"))
+  assert.equal(readDefinitions(paths).definitions[0]!.repository, null)
 
   clone(path.join(paths.projects, "acme/acme-theme"), "Acme-Co/acme-theme")
   const results = await syncAutomations(notionWith([{ repository: "acme-co/acme-theme", edited: "2026-11-14T09:00:00.000Z" }]).notion, paths, config)
   assert.equal(results[0]!.status, "written", results[0]!.detail)
   assert.equal(readDefinitions(paths).definitions[0]!.directory, path.join(paths.projects, "acme/acme-theme"))
+  assert.equal(readDefinitions(paths).definitions[0]!.repository, "acme-co/acme-theme", "kept for the run's Repository")
+
+  // A file written before Repository was kept still reads, as no repository.
+  const file = path.join(definitionsFolder(paths), `${readDefinitions(paths).definitions[0]!.id}.json`)
+  const { repository: _, ...older } = JSON.parse(fs.readFileSync(file, "utf8"))
+  fs.writeFileSync(file, JSON.stringify(older))
+  assert.equal(readDefinitions(paths).definitions[0]!.repository, null)
 })
 
 test("a bad Path or Repository is refused under the property to fix, and nothing runs somewhere unexpected", async () => {

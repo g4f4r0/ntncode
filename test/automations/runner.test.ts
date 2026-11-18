@@ -30,6 +30,7 @@ function definition(paths: { projects: string }, extra: Partial<Definition> = {}
     effort: "high",
     project: { page: "project", name: "Acme", folder: "acme" },
     directory,
+    repository: null,
     schedule: "DTSTART;TZID=Europe/Madrid:20261115T080000\nRRULE:FREQ=DAILY",
     timeZone: "Europe/Madrid",
     prompt: "Audit the store.",
@@ -158,8 +159,8 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   assert.deepEqual(created.properties.Status, { status: { name: "In progress" } })
   assert.deepEqual(created.properties.Automation, { relation: [{ id: "aut-page" }] })
   assert.deepEqual(
-    [created.properties.Agent, created.properties.Model, created.properties.Effort, created.properties.Folder],
-    [{ select: { name: "Claude Code" } }, { select: { name: "Opus 5.5" } }, { select: { name: "High" } }, { rich_text: [{ text: { content: "~/projects/acme" } }] }],
+    [created.properties.Agent, created.properties.Model, created.properties.Effort, created.properties.Path, created.properties.Repository],
+    [{ select: { name: "Claude Code" } }, { select: { name: "Opus 5.5" } }, { select: { name: "High" } }, { rich_text: [{ text: { content: "~/projects/acme" } }] }, { rich_text: [] }],
     "what runs it and where are properties from the start",
   )
 
@@ -181,6 +182,19 @@ test("a scheduled run records In progress, runs the agent with the wrapped promp
   assert.equal(typeof update.properties.Duration!.number, "number")
   assert.ok(update.properties.Date.date.end)
   assert.equal(readInflight(paths).length, 0)
+})
+
+test("a run in a repository records the folder it ran in as Path and the repository as Repository", async () => {
+  const paths = tempHome()
+  const { notion, writer, writes } = runsNotion()
+  const { agents } = stubAgent({ ok: true })
+  const directory = path.join(paths.projects, "acme/acme-theme")
+  fs.mkdirSync(directory, { recursive: true })
+  await runAutomation({ context: testContext(paths, notion, config()), definition: definition(paths, { directory, repository: "acme-co/acme-theme" }), trigger: "Manual", at: "2026-11-15T07:00:00.000Z", request: null, writer, agents })
+  const created = writes[0]!.body as { properties: Record<string, unknown> }
+  assert.deepEqual(created.properties.Path, { rich_text: [{ text: { content: "~/projects/acme/acme-theme" } }] })
+  assert.deepEqual(created.properties.Repository, { rich_text: [{ text: { content: "acme-co/acme-theme" } }] })
+  assert.equal(created.properties.Folder, undefined)
 })
 
 test("a scheduled time that already has a run in Runs never runs again", async () => {

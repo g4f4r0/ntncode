@@ -53,7 +53,7 @@ export class Runs {
   }
 
   /** The row, with what runs it and where, so a run in progress already shows them. */
-  async start(input: { key: string; automation: string; trigger: "Scheduled" | "Manual"; startedAt: string; agent: AgentName; model: string | null; effort: string | null; folder: string }): Promise<RunRow> {
+  async start(input: { key: string; automation: string; trigger: "Scheduled" | "Manual"; startedAt: string; agent: AgentName; model: string | null; effort: string | null; path: string; repository: string | null }): Promise<RunRow> {
     const page = await this.writer.createPage({
       parent: { data_source_id: this.dataSource },
       properties: {
@@ -65,7 +65,8 @@ export class Runs {
         Agent: { select: { name: input.agent } },
         Model: { select: input.model ? { name: modelLabel(input.model) } : null },
         Effort: { select: input.effort ? { name: `${input.effort[0]!.toUpperCase()}${input.effort.slice(1)}` } : null },
-        Folder: { rich_text: [{ text: { content: input.folder } }] },
+        Path: { rich_text: [{ text: { content: input.path } }] },
+        Repository: { rich_text: input.repository ? [{ text: { content: input.repository } }] : [] },
       },
     })
     return this.toRow(page)
