@@ -186,7 +186,8 @@ export async function syncAutomations(notion: Notion, paths: Paths, config: Conf
     }
     if (known && known.id !== row.id) removals.set(known.id, `${label}: its ID changed to ${row.id}`)
     const settled = !!known && Date.parse(known.synced) - Date.parse(row.edited) > SETTLED_MS
-    if (known && known.id === row.id && known.edited === row.edited && settled) {
+    // A file from before Repository was kept reads as none: read the row again so its runs record it.
+    if (known && known.id === row.id && known.edited === row.edited && known.repository === row.repository && settled) {
       results.push({ status: "unchanged", path: where, detail: `${label}: not edited since the last sync` })
       continue
     }
