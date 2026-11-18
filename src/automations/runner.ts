@@ -96,14 +96,14 @@ function codeBlock(text: string): string {
 /**
  * A run's page body: the agent's final reply, as written. Who ran it, where, how long and at what cost are the row's
  * properties. A failed run says what happened in plain words, then the exact error and the agent's own context in a
- * code block, then any reply the agent gave before it failed.
+ * code block, then any reply the agent gave, once.
  */
 export function renderReport(input: ReportInput): string {
   const reply = cut(input.reply.trim(), REPORT_CHARS)
   if (input.ok) return `${reply || "The agent finished without a final reply."}\n`
   const error = input.error ?? "unknown error"
   const raw = [redact(error), input.details ? redact(input.details) : null].filter(Boolean).join("\n\n")
-  return `${[`**Failed:** ${explainFailure(error, input.agent)}`, codeBlock(raw), ...(reply ? ["The agent's last reply:", reply] : [])].join("\n\n")}\n`
+  return `${[explainFailure(error, input.agent), codeBlock(raw), ...(reply ? ["The agent's last reply follows.", reply] : [])].join("\n\n")}\n`
 }
 
 /**

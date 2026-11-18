@@ -108,7 +108,7 @@ export const codex: Agent = {
     const resume = session ? `cd ${input.directory} && codex resume ${session}` : null
     const ok = result.code === 0 && !failure && !!session
     const stderr = oneLine(result.stderr.split("\n").filter((line) => !/rmcp::transport/u.test(line)).join(" "))
-    const details = ok ? null : failureDetails(result, { event: failedEvent, "last reply": reply ? oneLine(reply, 1_000) : null })
+    const details = ok ? null : failureDetails(result, { event: failedEvent })
     return { ok, reply, session, resume, usage, details, error: ok ? null : `Codex failed: ${failure ?? result.error ?? (stderr || `exit code ${result.code}`)}` }
   },
 

@@ -50,7 +50,7 @@ export function failureDetails(result: CommandResult, fields: Record<string, unk
 
 /**
  * A failure in plain words: what happened and what to do. Known causes get their own sentence; anything else says
- * the agent ended with an error, and the details carry the rest.
+ * the agent reported an error, and the details carry the rest.
  */
 export function explainFailure(error: string, agent: string): string {
   const known: [RegExp, string][] = [
@@ -58,11 +58,12 @@ export function explainFailure(error: string, agent: string): string {
     [/not logged in|please run \/login|401|invalid api key|authenticat|unauthori[sz]ed/iu, `${agent} couldn't sign in to its model provider, so it didn't do the work. Check the key in ~/.config/notion-code/agents.env, restart ntncode.service, and run ntncode doctor.`],
     [/unknown (?:provider for )?model|model[^\n]{0,40}(?:not found|does not exist|isn't supported|not supported)|invalid model/iu, `The model provider doesn't know the model this automation asks for, so ${agent} didn't do the work. Pick a model from the Model list in Notion.`],
     [/max_turns|turn limit/iu, `${agent} stopped at its turn limit before it finished. Split the prompt into smaller steps, or give it fewer things to do in one run.`],
+    [/at capacity/iu, `The model was at capacity and ${agent} ran out of retries, so the run stopped. It usually works on the next run; if it keeps happening, pick another model.`],
     [/usage limit|rate limit|rate_limit|\b429\b|overloaded|quota/iu, `The model provider refused ${agent}'s requests because of a usage or rate limit. It usually works again on the next run; if it keeps failing, check the provider's limits.`],
     [/isn't installed/iu, `${agent} isn't installed on this machine, so the run couldn't start. Install it, or pick another agent for this automation.`],
     [/folder .* doesn't exist/iu, "The run's folder doesn't exist on this machine, so the agent didn't start. Fix the project's Path or the automation's Repository in Notion, or create the folder."],
     [/returned no result/iu, `${agent} exited without a final result, so the run can't tell what it did. The details below show how it ended.`],
   ]
   for (const [pattern, sentence] of known) if (pattern.test(error)) return sentence
-  return `${agent} ended with an error before it finished. The details below are what it reported.`
+  return `${agent} reported an error, so the run counts as failed. The details below are what it reported.`
 }
