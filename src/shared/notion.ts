@@ -66,7 +66,7 @@ export interface NotionClientOptions {
   fetch?: typeof fetch
 }
 
-/** Everything Notion Code reads from Notion; tests pass a fake. */
+/** Everything ntncode reads from Notion; tests pass a fake. */
 export interface Notion {
   getPage(pageId: string): Promise<NotionPage>
   getPageMarkdown(pageId: string): Promise<string>

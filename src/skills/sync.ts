@@ -72,7 +72,7 @@ function install(target: string, source: string): void {
 
 /**
  * Notion's Skills library → ~/.agents/skills, one folder per skill. Every Notion read finishes before anything is
- * written; when any read fails, every skill stays as it is. A folder is written only when Notion Code wrote it before,
+ * written; when any read fails, every skill stays as it is. A folder is written only when ntncode wrote it before,
  * or it doesn't exist; a folder that already matches Notion exactly is adopted as it is. Anything else is left alone
  * and reported. A skill removed from Notion moves to the backups, unless it was edited by hand.
  */
@@ -117,7 +117,7 @@ export async function syncSkills(notion: Notion, paths: Paths, dataSource: strin
         continue
       }
       if (stats && !known) {
-        results.push({ status: "skipped", path: target, detail: "a folder Notion Code didn't write, and it differs from Notion; left as it is. Move it away to let Notion Code write the skill" })
+        results.push({ status: "skipped", path: target, detail: "a folder ntncode didn't write, and it differs from Notion; left as it is. Move it away to let ntncode write the skill" })
         continue
       }
       const editedByHand = !!stats && current !== known!.hash

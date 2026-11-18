@@ -47,7 +47,7 @@ const HomePath = z.string().refine((value) => value.startsWith("/") || value.sta
 
 const Enabled = z.boolean().optional()
 
-/** Each part of Notion Code; `"enabled": false` in its section turns it off and keeps its other settings. */
+/** Each part of ntncode; `"enabled": false` in its section turns it off and keeps its other settings. */
 export const SECTIONS = ["instructions", "skills", "agents", "automations", "artifacts"] as const
 export type Section = (typeof SECTIONS)[number]
 

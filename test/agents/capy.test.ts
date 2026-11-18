@@ -73,7 +73,7 @@ function fixture(override?: (call: Call, state: { clock: number; polls: number }
 
 const count = (events: string[], event: string) => events.filter((entry) => entry === event).length
 
-test("Capy maps Notion Code models to its IDs and rejects others in settings", () => {
+test("Capy maps ntncode models to its IDs and rejects others in settings", () => {
   assert.equal(capyModel(null), null)
   assert.equal(capyModel("claude-opus-5-5"), "anthropic/claude-opus-5-5")
   assert.equal(capyModel("gpt-6.1-sol"), "openai/gpt-6.1-sol")

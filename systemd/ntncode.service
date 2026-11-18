@@ -1,6 +1,6 @@
 [Unit]
-Description=Notion Code scheduler: syncs every 10 minutes and runs Notion automations on their schedules
-Documentation=https://github.com/g4f4r0/notion-code
+Description=ntncode scheduler: syncs every 10 minutes and runs Notion automations on their schedules
+Documentation=https://github.com/g4f4r0/ntncode
 After=network-online.target
 Wants=network-online.target
 

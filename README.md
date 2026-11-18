@@ -1,11 +1,11 @@
-# Notion Code
+# ntncode
 
-Notion Code makes Notion the source of truth for every coding agent. You keep instructions, skills and scheduled
+ntncode makes Notion the source of truth for every coding agent. You keep instructions, skills and scheduled
 automations in Notion, and every agent on the machine works from them, whichever one you switch to. Change the agent
 and keep the same quality.
 
-Notion Code is an independent open-source project. It isn't made by or affiliated with Notion Labs. Its command is
-`ntncode`, a nod to Notion's own CLI, `ntn`. It is written for agents first: every command prints one JSON document.
+ntncode is an independent open-source project. It isn't made by or affiliated with Notion Labs. Its name is a nod to Notion's own CLI,
+`ntn`. It is written for agents first: every command prints one JSON document.
 
 ## What it does
 
@@ -63,7 +63,7 @@ With `skills` set in the config, each sync exports every skill in the Notion Ski
 Skills API and writes it to `~/.agents/skills/<name>`. A skill with Auto-invoke unticked gets
 `disable-model-invocation: true`, so agents load it only when asked.
 
-It writes a folder only when Notion Code wrote it before, or nothing is there. A folder that already matches Notion
+It writes a folder only when ntncode wrote it before, or nothing is there. A folder that already matches Notion
 exactly is adopted as it is; anything else is left alone and reported. A skill removed from Notion moves to the
 backups, unless it was edited by hand. When any Notion read fails, every skill stays as it is.
 
@@ -90,7 +90,7 @@ repository inside it.
 ## How automations work
 
 An automation is a row in a Notion database with two data sources: Automations, one row per automation, and Runs,
-which only Notion Code writes.
+which only ntncode writes.
 
 | Automations property | Type | Holds |
 | --- | --- | --- |
@@ -133,7 +133,7 @@ What makes an automation run:
 1. Its Assignee is this installation's `assignee`, and the assignee made the row's last edit. Property edits made
    through the API show as the token's bot, so they never count. Notion credits a page body edit made through its
    markdown API to the token's owner, though, so the check can't tell those from the assignee's own; that's why agent
-   runs never get Notion Code's token. Setting
+   runs never get ntncode's token. Setting
    `Disabled` or `Archived` always takes effect, whoever does it.
 2. Each accepted row becomes an automation file in the state folder, and the scheduler reads those files, not Notion.
 3. A scheduled run first looks for its Title in Runs, so the same scheduled minute never runs twice, even if the state
@@ -154,7 +154,7 @@ is retried every tick.
 ### T3 Code, Zeron, and Capy
 
 Set an automation's Agent to `T3 Code`, `Zeron`, or `Capy` to keep its session in that app. All three run on the same
-Linux server as Notion Code, through an already-running local daemon. No adapter starts a daemon, connects to another
+Linux server as ntncode, through an already-running local daemon. No adapter starts a daemon, connects to another
 device, or changes existing automation assignments. Install `t3` or `zeron` on the scheduler's PATH (or in
 `~/.local/bin`), or pair Capy's dock (`~/.capy/bin/capy`), start its service, and configure its model provider and MCP
 tools in that app before running the automation.
@@ -176,7 +176,7 @@ Capy uses its HTTP API at `api.capy.ai` with `CAPY_API_KEY`, a key from the Capy
 `~/.config/notion-code/agents.env`. It runs the thread on this machine's dock, read from
 `~/.capy/dock/status.json`, in the run's folder as a linked workspace. That folder must be exactly one of the dock's
 linked folders, so an automation usually sets Repository to a linked clone. The Capy project is the one that holds
-the folder's origin repository, preferring the project where it is primary. Notion Code's `claude-*` and `gpt-*`
+the folder's origin repository, preferring the project where it is primary. ntncode's `claude-*` and `gpt-*`
 models map to `anthropic/…` and `openai/…`; any other Capy model ID, such as `claude-code/claude-opus-5-5` for the
 dock's own Claude Code, passes through. With Model empty, Capy uses the key's default model. Capy reports a new
 thread as idle until the dock picks it up, so a thread that never starts fails after two minutes. Capy keeps that
@@ -188,10 +188,10 @@ With Model empty, it keeps the project's or app's default. T3 Code requires Mode
 rejects an effort the selected model or harness does not offer. Existing Notion labels such as `GPT-6.1 Sol` still
 map to their model IDs. Add an exact custom ID as a Model option when needed.
 
-Hosted agents inherit their app daemon's environment. Notion Code checks that the daemon does not carry its
+Hosted agents inherit their app daemon's environment. ntncode checks that the daemon does not carry its
 `NOTION_ACCESS_TOKEN`; this environment check currently requires Linux. The prompt supplies the automation's
 non-secret run context as a shell prefix for `ntncode alert`. Provider credentials belong to the app's service,
-rather than Notion Code's `agents.env`; only Capy's API key lives there. `doctor` checks the local daemon and reports effective provider MCP
+rather than ntncode's `agents.env`; only Capy's API key lives there. `doctor` checks the local daemon and reports effective provider MCP
 connections as unverified when the app does not expose them.
 
 A run fails if it needs input, loses reliable status, or does not complete within an hour. Scheduler shutdown
@@ -240,12 +240,12 @@ this layout.
 You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so there's no build step.
 
 1. Clone the repository anywhere, install its dependencies, and put the command on your PATH. The examples use
-   `~/src/notion-code`:
+   `~/src/ntncode`:
 
    ```sh
-   git clone https://github.com/g4f4r0/notion-code.git ~/src/notion-code
-   cd ~/src/notion-code && bun install
-   ln -s ~/src/notion-code/bin/ntncode ~/.local/bin/ntncode
+   git clone https://github.com/g4f4r0/ntncode.git ~/src/ntncode
+   cd ~/src/ntncode && bun install
+   ln -s ~/src/ntncode/bin/ntncode ~/.local/bin/ntncode
    ```
 
 2. Create a personal access token in Notion's [developer portal](https://www.notion.so/developers/tokens) with the
@@ -256,7 +256,9 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
    NOTION_ACCESS_TOKEN=ntn_...
    ```
 
-3. Write the config file, `~/.config/notion-code/config.json`. Every key is optional; leave out what you don't use:
+3. Write the config file, `~/.config/notion-code/config.json`. The existing `notion-code` config and state
+   directories stay in place after the rename; no data migration is needed. Every key is optional; leave out what
+   you don't use:
 
    ```json
    {
@@ -296,7 +298,7 @@ You need [Bun](https://bun.sh) 1.4 or later. It runs the TypeScript directly, so
 6. Start the scheduler:
 
    ```sh
-   ln -s ~/src/notion-code/systemd/ntncode.service ~/.config/systemd/user/
+   ln -s ~/src/ntncode/systemd/ntncode.service ~/.config/systemd/user/
    systemctl --user daemon-reload
    systemctl --user enable --now ntncode.service
    ```

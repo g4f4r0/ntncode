@@ -119,7 +119,7 @@ export async function alert(
   const { definition, run } = event
   const status = event.status ?? "failed"
   const what = status === "alert" ? "needs attention" : "failed"
-  const message = `Notion Code automation "${definition.title}" (${definition.id}) ${what}: ${event.error.replace(/\s+/gu, " ").slice(0, status === "alert" ? 4_000 : 500)}${run ? ` Run ${run.id}: ${run.url}` : ""}\n`
+  const message = `ntncode automation "${definition.title}" (${definition.id}) ${what}: ${event.error.replace(/\s+/gu, " ").slice(0, status === "alert" ? 4_000 : 500)}${run ? ` Run ${run.id}: ${run.url}` : ""}\n`
   const result = await runShell(expandHome(paths.home, command), {
     input: message,
     timeoutMs: ALERT_TIMEOUT_MS,
@@ -220,7 +220,7 @@ export async function runAutomation(input: RunInput): Promise<Result[]> {
         writeInflight(paths, inflight)
       },
       env: {
-        // The agent reaches Notion through its own tools. Notion Code's token stays out of its environment: Notion
+        // The agent reaches Notion through its own tools. ntncode's token stays out of its environment: Notion
         // credits page edits made with it to the token's owner, so an agent holding it could pass the assignee check.
         NOTION_ACCESS_TOKEN: undefined,
         // Only the Capy adapter uses Capy's key, from the scheduler itself; no agent session needs it.

@@ -278,7 +278,7 @@ test("a run left in progress by a stopped scheduler is marked Failed when the sc
     const results = await automations.serve!.start!(testContext(paths, notion, config({ onFailure: `cat > ${out}` })))
     assert.equal(results[0]!.status, "failed")
     assert.match(results[0]!.detail, /RUN-9 marked Failed.*sent the alert/u)
-    assert.match(fs.readFileSync(out, "utf8"), /"Acme" \(AUT-12\) failed: Notion Code's scheduler stopped/u)
+    assert.match(fs.readFileSync(out, "utf8"), /"Acme" \(AUT-12\) failed: ntncode's scheduler stopped/u)
   } finally {
     globalThis.fetch = original
   }
@@ -300,7 +300,7 @@ test("an agent's alert goes through the same command, marked as needing attentio
     status: "alert",
   })
   assert.equal(result, "onFailure command sent the alert")
-  assert.equal(fs.readFileSync(out, "utf8"), 'Notion Code automation "Acme publish holiday theme" (AUT-18) needs attention: The publish failed: someone must publish theme 123456789012 by hand. Run RUN-40: r\nalert\n')
+  assert.equal(fs.readFileSync(out, "utf8"), 'ntncode automation "Acme publish holiday theme" (AUT-18) needs attention: The publish failed: someone must publish theme 123456789012 by hand. Run RUN-40: r\nalert\n')
   assert.equal(await alert(paths, null, { definition: { id: "a", title: "t", url: "", directory: "/" }, run: null, error: "x", session: null }), "no onFailure command configured")
 })
 
@@ -333,7 +333,7 @@ test("a failure explains itself in plain words, then shows the exact error and c
   assert.doesNotMatch(page, /sk-abc|ntn_123/u, "no secret reaches Notion")
   assert.equal(redact("key=supersecretvalue1 ok", { MY_API_KEY: "supersecretvalue1" }), "key=<redacted> ok", "a secret from the environment is masked by its value")
   assert.match(explainFailure("Codex failed: unknown provider for model gpt-9-missing", "Codex"), /doesn't know the model/u)
-  assert.equal(explainFailure("Notion Code's scheduler stopped during the run", "Codex"), "Notion Code's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual.")
+  assert.equal(explainFailure("ntncode's scheduler stopped during the run", "Codex"), "ntncode's scheduler restarted or stopped during this run, which stopped the agent too. Nothing needs fixing; the next run starts as usual.")
   const fenced = renderReport({ agent: "Codex", ok: false, reply: "", error: "x", details: "output with ``` inside" })
   assert.match(fenced, /````text\nx\n\noutput with ``` inside\n````/u, "a fence inside the details can't close the block")
 })

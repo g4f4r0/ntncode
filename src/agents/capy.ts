@@ -82,7 +82,7 @@ const defaultSleep = (ms: number, signal?: AbortSignal) => new Promise<void>((re
 })
 
 /**
- * A Model property value as a Capy model ID: Notion Code's claude-* and gpt-* IDs gain their provider, and a
+ * A Model property value as a Capy model ID: ntncode's claude-* and gpt-* IDs gain their provider, and a
  * provider/model ID, such as claude-code/claude-opus-5-5 or google/gemini-4-argon, passes through as it is.
  */
 export function capyModel(model: string | null): string | null {

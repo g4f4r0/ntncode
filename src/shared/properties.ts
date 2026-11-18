@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { plainText, type NotionProperty } from "./notion.ts"
 
-// One Zod schema per Notion property type, for the parts Notion Code reads.
+// One Zod schema per Notion property type, for the parts ntncode reads.
 const Named = z.looseObject({ name: z.string() })
 const P = {
   title: z.looseObject({ type: z.literal("title"), title: z.array(z.looseObject({ plain_text: z.string().optional() })) }),
