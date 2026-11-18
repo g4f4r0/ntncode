@@ -1,6 +1,6 @@
 {
   "name": "ntncode",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "ntncode: Notion as the source of truth for every coding agent. Syncs Notion instructions and skills to the files each agent reads, and runs Notion automations on any of them.",
   "type": "module",
   "private": true,

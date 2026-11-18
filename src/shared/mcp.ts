@@ -108,7 +108,7 @@ export async function stdioMcp(command: string, args: string[], options: { cwd?:
   }
   try {
     if (child.pid) options.onStart?.(child.pid)
-    await request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "ntncode", version: "0.4.3" } }, { timeoutMs: 15_000 })
+    await request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "ntncode", version: "0.4.4" } }, { timeoutMs: 15_000 })
     child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`)
     return { call: async (name, args, callOptions) => toolValue(await request("tools/call", { name, arguments: args }, callOptions)), close }
   } catch (error) {
@@ -174,7 +174,7 @@ export async function httpMcp(url: string, headers: Record<string, string>): Pro
     if (message.error) throw new Error(message.error.message)
     return message.result
   }
-  await request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "ntncode", version: "0.4.3" } })
+  await request("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "ntncode", version: "0.4.4" } })
   await request("notifications/initialized", {}, {}, true)
   return {
     call: async (name, args, options) => toolValue(await request("tools/call", { name, arguments: args }, options)),

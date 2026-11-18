@@ -89,6 +89,20 @@ test("Codex runs exec --json, bypassing approvals, with effort as model_reasonin
   } finally {
     failed.restore()
   }
+  const recovered = stub("codex", ['{"type":"thread.started","thread_id":"r"}', '{"type":"error","message":"Reconnecting... 1/5 (Selected model is at capacity)"}', '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}', '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'].join("\n"))
+  try {
+    const output = await codex.run(recovered.paths, input(recovered.directory))
+    assert.deepEqual([output.ok, output.reply, output.error], [true, "done", null], "a retry Codex recovered from isn't a failure")
+  } finally {
+    recovered.restore()
+  }
+  const unrecovered = stub("codex", ['{"type":"thread.started","thread_id":"u"}', '{"type":"error","message":"Reconnecting... 5/5"}'].join("\n"))
+  try {
+    const output = await codex.run(unrecovered.paths, input(unrecovered.directory))
+    assert.deepEqual([output.ok, output.error], [false, "Codex failed: Reconnecting... 5/5"])
+  } finally {
+    unrecovered.restore()
+  }
 })
 
 test("OpenCode runs with --auto and the model's variant as effort; the reply is the last message's text", async () => {
